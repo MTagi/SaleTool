@@ -72,3 +72,23 @@ class CompanyResult(BaseModel):
 
     company: Company
     contacts: list[Contact] = Field(default_factory=list)
+
+
+class SearchRunSummary(BaseModel):
+    """1 dòng lịch sử tìm kiếm — đủ thông tin để hiển thị danh sách, chưa kèm
+    kết quả đầy đủ (xem SearchRunDetail)."""
+
+    id: str = Field(description="UUID, dùng để tra lại chi tiết/tải file")
+    username: str
+    created_at: str = Field(description="ISO 8601 UTC, vd: 2026-08-13T10:00:00+00:00")
+    provider: str
+    criteria: SearchCriteria
+    total_companies: int
+    total_contacts: int
+
+
+class SearchRunDetail(SearchRunSummary):
+    """1 lần tìm kiếm kèm đầy đủ kết quả — dùng khi xem lại 1 lần chạy trong lịch sử."""
+
+    results: list[CompanyResult] = Field(default_factory=list)
+

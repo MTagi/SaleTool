@@ -11,6 +11,7 @@ export default function TopBar() {
         SaleTool
       </Link>
       <nav>
+        <Link to="/history">Lịch sử</Link>
         <span className="user">{user}</span>
         <button className="link-button" onClick={logout}>
           Đăng xuất

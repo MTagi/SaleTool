@@ -102,8 +102,10 @@ python -m saletool.cli web serve --host 127.0.0.1 --port 8000
 ```
 
 API chính: `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/search`
-(multipart — hỗ trợ upload CSV cho provider `csv_import`), `GET
-/api/download/{csv,json}`. Xem `saletool/api/routes/`.
+(multipart — hỗ trợ upload CSV cho provider `csv_import`, tự lưu vào lịch sử),
+`GET /api/search/runs` (danh sách lịch sử), `GET /api/search/runs/{run_id}`
+(chi tiết 1 lần chạy), `GET /api/download/{csv,json}?run_id=...` (mặc định
+lần gần nhất nếu không truyền `run_id`). Xem `saletool/api/routes/`.
 
 ### Chạy frontend (React)
 
@@ -118,7 +120,9 @@ Mở `http://127.0.0.1:5173`. Vite dev server proxy sẵn `/api/*` sang
 hình CORS thủ công lúc phát triển. Đăng nhập, điền tiêu chí tìm kiếm, chọn
 provider (`mock` để demo, `apollo` với API key, hoặc `csv_import` để tải lên
 CSV tự export từ Sales Navigator), bấm **Tìm kiếm** — kết quả hiển thị dạng
-bảng theo từng công ty kèm liên hệ cấp cao, có nút tải CSV/JSON.
+bảng theo từng công ty kèm liên hệ cấp cao, có nút tải CSV/JSON. Mỗi lần tìm
+kiếm được lưu lại — trang **Lịch sử** liệt kê các lần chạy trước (tiêu chí,
+provider, số công ty/liên hệ, thời gian) và cho xem lại/tải lại kết quả cũ.
 
 Build production: `npm run build` (ra `frontend/dist/`) — deploy tĩnh sau
 1 reverse proxy trỏ `/api/*` về FastAPI, phần còn lại phục vụ file tĩnh.
@@ -132,10 +136,11 @@ export SALETOOL_MONGO_URI="mongodb://localhost:27017"
 export SALETOOL_MONGO_DB=saletool
 ```
 
-`saletool/db/base.py` định nghĩa interface `UserRepository`;
-`sqlite_repo.py` và `mongo_repo.py` là 2 implementation — `saletool/db/factory.py`
-chọn theo `SALETOOL_DB_BACKEND`. Muốn thêm DB khác chỉ cần viết thêm 1
-implementation mới theo interface này.
+`saletool/db/base.py` định nghĩa 2 interface — `UserRepository` (tài khoản) và
+`SearchRunRepository` (lịch sử tìm kiếm, mỗi lần chạy lưu tiêu chí + kết quả
+đầy đủ); `sqlite_repo.py` và `mongo_repo.py` là 2 implementation cho cả hai —
+`saletool/db/factory.py` chọn theo `SALETOOL_DB_BACKEND`. Muốn thêm DB khác
+chỉ cần viết thêm 1 implementation mới theo các interface này.
 
 **Phạm vi bảo mật:** phù hợp dùng nội bộ sau HTTPS reverse proxy đáng tin cậy.
 Chưa có: giới hạn số lần đăng nhập sai, refresh token/thu hồi token, khôi phục
@@ -165,7 +170,7 @@ saletool/
   output.py             # xuất CSV/JSON
   cli.py                 # CLI: saletool search / saletool web serve|create-user
   db/
-    base.py               # interface UserRepository
+    base.py               # interface UserRepository, SearchRunRepository
     sqlite_repo.py          # implementation SQLite (mặc định)
     mongo_repo.py            # implementation MongoDB (sẵn sàng, chưa bật mặc định)
     factory.py                # chọn implementation theo SALETOOL_DB_BACKEND
@@ -175,8 +180,8 @@ saletool/
     deps.py                 # dependency get_current_user
     routes/
       auth.py                 # /api/auth/login, /api/auth/me
-      search.py                # /api/search, /api/download/{fmt}
-frontend/               # React SPA (Vite) — login, dashboard, results
+      search.py                # /api/search, /api/search/runs[/{id}], /api/download/{fmt}
+frontend/               # React SPA (Vite) — login, dashboard, results, lịch sử
 examples/
   search_criteria.example.yaml
   companies_export.example.csv

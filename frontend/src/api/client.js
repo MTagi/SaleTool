@@ -47,7 +47,9 @@ export const api = {
   login: (username, password) => request("/api/auth/login", { method: "POST", body: { username, password } }),
   me: () => request("/api/auth/me"),
   search: (formData) => request("/api/search", { method: "POST", body: formData, isForm: true }),
-  downloadUrl: (fmt) => `/api/download/${fmt}`,
+  listRuns: () => request("/api/search/runs"),
+  getRun: (runId) => request(`/api/search/runs/${runId}`),
+  downloadUrl: (fmt, runId) => `/api/download/${fmt}?run_id=${encodeURIComponent(runId)}`,
 };
 
 export { ApiError };

@@ -1,4 +1,5 @@
-"""/api/search, /api/download/{fmt} — chạy pipeline tìm công ty + liên hệ cấp cao."""
+"""/api/search, /api/search/runs, /api/download/{fmt} — chạy pipeline tìm
+công ty + liên hệ cấp cao, và lịch sử các lần chạy trước đó."""
 
 from __future__ import annotations
 
@@ -8,18 +9,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from saletool.models import CompanyResult, DEFAULT_SENIOR_LEVELS, SearchCriteria
+from saletool.api.deps import get_current_user
+from saletool.db.factory import get_search_run_repository
+from saletool.models import DEFAULT_SENIOR_LEVELS, SearchCriteria
 from saletool.output import write_csv, write_json
 from saletool.pipeline import run_search
 from saletool.providers import get_provider
-from saletool.api.deps import get_current_user
 
 router = APIRouter(prefix="/api", tags=["search"])
-
-# Kết quả tìm kiếm gần nhất của mỗi user, lưu tạm trong bộ nhớ tiến trình
-# (mất khi restart server — đủ dùng cho 1 phiên làm việc; nâng cấp lên lưu
-# trong DB nếu cần giữ lịch sử nhiều phiên).
-_results_store: dict[str, list[CompanyResult]] = {}
 
 
 def _split_csv_field(value: str) -> list[str]:
@@ -97,32 +94,54 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
         for p in tmp_paths:
             p.unlink(missing_ok=True)
 
-    _results_store[user] = results
-    total_contacts = sum(len(r.contacts) for r in results)
+    # api_key không nằm trong `criteria` nên không bao giờ bị lưu vào lịch sử.
+    run = get_search_run_repository().save_run(
+        username=user, provider=provider_name, criteria=criteria, results=results
+    )
+
     return {
+        "run_id": run.id,
+        "created_at": run.created_at,
+        "provider": run.provider,
         "companies": [r.model_dump() for r in results],
-        "total_companies": len(results),
-        "total_contacts": total_contacts,
+        "total_companies": run.total_companies,
+        "total_contacts": run.total_contacts,
     }
 
 
+@router.get("/search/runs")
+def list_runs(user: str = Depends(get_current_user), limit: int = 20) -> list[dict]:
+    runs = get_search_run_repository().list_runs(user, limit=limit)
+    return [r.model_dump() for r in runs]
+
+
+@router.get("/search/runs/{run_id}")
+def get_run(run_id: str, user: str = Depends(get_current_user)) -> dict:
+    run = get_search_run_repository().get_run(user, run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lần tìm kiếm này.")
+    return run.model_dump()
+
+
 @router.get("/download/{fmt}")
-def download(fmt: str, user: str = Depends(get_current_user)) -> Response:
-    results = _results_store.get(user)
-    if not results:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chưa có kết quả tìm kiếm nào để tải.")
+def download(fmt: str, run_id: str | None = None, user: str = Depends(get_current_user)) -> Response:
     if fmt not in ("csv", "json"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Định dạng không hỗ trợ (dùng csv hoặc json).")
+
+    repo = get_search_run_repository()
+    run = repo.get_run(user, run_id) if run_id else repo.get_latest_run(user)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chưa có kết quả tìm kiếm nào để tải.")
 
     fd, tmp_path_str = tempfile.mkstemp(suffix=f".{fmt}")
     os.close(fd)
     tmp_path = Path(tmp_path_str)
     try:
         if fmt == "json":
-            write_json(results, tmp_path)
+            write_json(run.results, tmp_path)
             media_type = "application/json"
         else:
-            write_csv(results, tmp_path)
+            write_csv(run.results, tmp_path)
             media_type = "text/csv"
         data = tmp_path.read_bytes()
     finally:

@@ -167,3 +167,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .contact-email { color: var(--ink-soft); font-size: 13px; margin-left: auto; }
 .company-card .small { padding: 10px 18px; margin: 0; }
+
+.history-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-raised);
+  margin: 10px 0;
+  text-decoration: none;
+  color: var(--ink);
+}
+.history-row:hover { border-color: var(--accent); }
+.history-row-main { display: flex; flex-direction: column; gap: 4px; }
+.history-criteria { font-weight: 600; }
+.history-date { white-space: nowrap; }

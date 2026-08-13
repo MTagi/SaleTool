@@ -5,6 +5,8 @@ import { useAuth } from "./context/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Results from "./pages/Results";
+import History from "./pages/History";
+import HistoryDetail from "./pages/HistoryDetail";
 
 export default function App() {
   const { loading } = useAuth();
@@ -28,6 +30,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Results />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/history"
+          element={
+            <ProtectedRoute>
+              <History />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/history/:runId"
+          element={
+            <ProtectedRoute>
+              <HistoryDetail />
             </ProtectedRoute>
           }
         />
