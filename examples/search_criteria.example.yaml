@@ -1,0 +1,32 @@
+# Input format mô tả mục tiêu tìm kiếm công ty.
+# Xem saletool/models.py (SearchCriteria) để biết đầy đủ các trường.
+
+industries:
+  - Software
+  - Information Technology
+
+keywords:
+  - fintech
+  - payments
+
+locations:
+  - Vietnam
+  - Singapore
+
+company_size_min: 50
+company_size_max: 500
+
+target_titles:
+  - CEO
+  - CTO
+  - Head of Sales
+
+seniority_levels:
+  - owner
+  - founder
+  - c_suite
+  - vp
+  - director
+
+max_companies: 20
+max_contacts_per_company: 5
