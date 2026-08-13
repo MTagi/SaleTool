@@ -42,6 +42,38 @@ _SOCIAL_DOMAINS = {
     "zalo.me": "zalo",
 }
 
+# Nút "chia sẻ trang này" trỏ đúng vào các domain trên nhưng không phải trang của
+# công ty (facebook.com/sharer/sharer.php?u=..., twitter.com/intent/tweet...).
+# Gần như trang nào cũng có nút share, không lọc thì nó luôn thắng link thật vì
+# thường nằm cao hơn trong HTML.
+_SOCIAL_SHARE_RE = re.compile(
+    r"/(?:sharer|share|sharearticle|share-offsite|sharing|intent)\b|[?&]u=http|/pin/create",
+    re.IGNORECASE,
+)
+
+# Link tới 1 video/bài viết cụ thể — không phải hồ sơ công ty.
+_SOCIAL_ITEM_RE = re.compile(r"youtube\.com/watch|youtu\.be/|/posts/|/videos/", re.IGNORECASE)
+
+
+def social_profile(url: str) -> tuple[str, str] | None:
+    """`(mạng, url)` nếu là hồ sơ mạng xã hội, `None` nếu không phải.
+
+    href trong HTML hay dính khoảng trắng/xuống dòng ở hai đầu; không strip thì
+    URL lưu xuống DB thừa dấu cách và bấm vào không mở được.
+    """
+    link = (url or "").strip()
+    if not link:
+        return None
+
+    low = link.lower()
+    if _SOCIAL_SHARE_RE.search(low) or _SOCIAL_ITEM_RE.search(low):
+        return None
+
+    for domain, key in _SOCIAL_DOMAINS.items():
+        if domain in low:
+            return key, link
+    return None
+
 # Email dùng chung của nền tảng/ảnh — không phải liên hệ thật của công ty.
 _EMAIL_NOISE = ("example.com", "sentry.io", "wixpress.com", "@2x", ".png", ".jpg", ".webp")
 
@@ -103,10 +135,9 @@ class _MetaAndLinkParser(HTMLParser):
             elif low.startswith("tel:"):
                 self.tel.append(href[4:].strip())
             elif low.startswith("http"):
-                for domain, key in _SOCIAL_DOMAINS.items():
-                    if domain in low and key not in self.social:
-                        self.social[key] = href
-                        break
+                if profile := social_profile(href):
+                    key, link = profile
+                    self.social.setdefault(key, link)
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "script" and self._in_jsonld:
@@ -250,9 +281,8 @@ def extract_structured(html: str, text: str | None = None) -> StructuredData:
         for link in same_as if isinstance(same_as, list) else [same_as]:
             if not isinstance(link, str):
                 continue
-            for domain, key in _SOCIAL_DOMAINS.items():
-                if domain in link.lower():
-                    data.social_links.setdefault(key, link)
+            if profile := social_profile(link):
+                data.social_links.setdefault(*profile)
 
     # --- Thẻ meta / OpenGraph ---
     data.name = data.name or parser.metas.get("og:site_name") or parser.title

@@ -1,7 +1,7 @@
 """Tầng tải trang: HTTP trước, browser chỉ khi cần.
 
 Thiết kế theo interface để sau này thay bằng Firecrawl/Lightpanda mà không phải
-sửa pipeline — xem research/linkedin-company-search/ để biết lý do chọn hướng này.
+sửa pipeline — xem docs/research/linkedin-company-search/ để biết lý do chọn hướng này.
 
 Nguyên tắc lịch sự (giữ bước enrich ở phía "rủi ro thấp"):
 - tôn trọng robots.txt

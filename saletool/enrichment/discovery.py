@@ -38,12 +38,32 @@ PRIORITY_PATH_PATTERNS = [
 
 _PRIORITY_RE = re.compile("|".join(PRIORITY_PATH_PATTERNS), re.IGNORECASE)
 
-# Không phí lượt tải vào các trang này.
-_SKIP_RE = re.compile(
-    r"\.(pdf|jpg|jpeg|png|gif|svg|webp|zip|rar|docx?|xlsx?|pptx?|mp4|mp3)$"
-    r"|/wp-json/|/wp-admin/|/cart|/checkout|/login|/dang-nhap",
+# Đuôi file không phải trang nội dung. Có cả css/js vì site dựng bằng Next.js,
+# Nuxt... nhét đường dẫn bundle vào ngay trong HTML trang chủ, crawl nông sẽ
+# nhặt phải: mỗi cái tốn 1 request + 1 nhịp nghỉ rate limit rồi bị fetcher loại
+# vì sai content-type.
+_SKIP_EXT_RE = re.compile(
+    r"\.(css|js|mjs|map|json|pdf|jpg|jpeg|png|gif|svg|webp|ico|zip|rar"
+    r"|docx?|xlsx?|pptx?|mp4|mp3|woff2?|ttf|otf|eot)$",
     re.IGNORECASE,
 )
+
+# Thư mục chỉ chứa asset build hoặc chức năng — không bao giờ có thông tin công ty.
+_SKIP_PATH_RE = re.compile(
+    r"/_next/static/|/_nuxt/|/static/(?:js|css|media)/|/wp-json/|/wp-admin/"
+    r"|/wp-includes/|/wp-content/|/cdn-cgi/|/cart|/checkout|/login|/dang-nhap",
+    re.IGNORECASE,
+)
+
+
+def _should_skip(url: str) -> bool:
+    """URL này có đáng tải không.
+
+    Khớp trên phần path chứ không phải cả URL: đuôi file hay đi kèm query
+    cache-busting (`/app.css?v=9f2a`), neo `$` vào cả URL sẽ trượt hết.
+    """
+    path = urlparse(url).path
+    return bool(_SKIP_EXT_RE.search(path) or _SKIP_PATH_RE.search(path))
 
 _SITEMAP_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
 _HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -69,10 +89,7 @@ def normalize_domain(raw: str) -> str | None:
 
 
 def _same_site(url: str, domain: str) -> bool:
-    netloc = urlparse(url).netloc.lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    return netloc == domain
+    return normalize_domain(url) == domain
 
 
 def _rank(url: str) -> int:
@@ -133,7 +150,7 @@ async def urls_from_sitemap(
             if found:
                 break
 
-    unique = [u for u in dict.fromkeys(found) if not _SKIP_RE.search(u)]
+    unique = [u for u in dict.fromkeys(found) if not _should_skip(u)]
     return unique[:max_urls]
 
 
@@ -154,7 +171,7 @@ async def urls_from_homepage(
                 absolute = urljoin(str(resp.url), href)
                 if not absolute.startswith("http"):
                     continue
-                if not _same_site(absolute, domain) or _SKIP_RE.search(absolute):
+                if not _same_site(absolute, domain) or _should_skip(absolute):
                     continue
                 urls.append(absolute.split("#")[0])
 
@@ -212,7 +229,7 @@ async def discover_external_urls(
 
         for item in results:
             url = item.url.split("#")[0]
-            if _SKIP_RE.search(url) or url in seen:
+            if _should_skip(url) or url in seen:
                 continue
             # Bỏ trang thuộc chính domain công ty — đã crawl riêng.
             if domain and _same_site(url, domain):

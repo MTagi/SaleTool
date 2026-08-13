@@ -249,9 +249,6 @@ class EnrichTarget(BaseModel):
     )
 
 
-JOB_STATUSES = ["pending", "running", "completed", "failed", "cancelled"]
-
-
 class EnrichJobSummary(BaseModel):
     id: str
     username: str

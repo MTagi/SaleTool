@@ -75,6 +75,20 @@ def _merge_executives(target: list[Executive], new_items: list[Executive], sourc
         existing.add(name.lower())
 
 
+def _source(
+    url: str, fetched_at: str, method: str, extractor: str, ok: bool, note: str | None = None
+) -> EnrichmentSource:
+    """Ghi provenance cho 1 lần bóc dữ liệu (URL nào, lúc nào, bằng cách gì)."""
+    return EnrichmentSource(
+        url=url,
+        fetched_at=fetched_at,
+        fetch_method=method,
+        extractor=extractor,
+        ok=ok,
+        note=note,
+    )
+
+
 def _build_fetcher(settings: AppSettings):
     enrichment = settings.enrichment
     robots = RobotsCache(enrichment.user_agent) if enrichment.respect_robots_txt else None
@@ -160,14 +174,7 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
 
         if not page.ok or not page.html:
             result.sources.append(
-                EnrichmentSource(
-                    url=url,
-                    fetched_at=fetched_at,
-                    fetch_method=page.method,
-                    extractor="none",
-                    ok=False,
-                    note=page.error,
-                )
+                _source(url, fetched_at, page.method, "none", ok=False, note=page.error)
             )
             continue
 
@@ -189,13 +196,7 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
                 result.social_links.setdefault(key, link)
 
             result.sources.append(
-                EnrichmentSource(
-                    url=url,
-                    fetched_at=fetched_at,
-                    fetch_method=page.method,
-                    extractor="json_ld+meta+regex",
-                    ok=True,
-                )
+                _source(url, fetched_at, page.method, "json_ld+meta+regex", ok=True)
             )
 
         # --- Tầng 3: LLM, chỉ cho phần còn thiếu ---
@@ -208,14 +209,7 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
             except LLMError as exc:
                 logger.warning("LLM lỗi ở %s: %s", url, exc)
                 result.sources.append(
-                    EnrichmentSource(
-                        url=url,
-                        fetched_at=fetched_at,
-                        fetch_method=page.method,
-                        extractor="llm",
-                        ok=False,
-                        note=str(exc)[:200],
-                    )
+                    _source(url, fetched_at, page.method, "llm", ok=False, note=str(exc)[:200])
                 )
             else:
                 result.llm_calls += 1
@@ -229,15 +223,7 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
                 _merge_unique(result.technologies, extracted.technologies)
                 _merge_executives(result.executives, extracted.executives, url)
 
-                result.sources.append(
-                    EnrichmentSource(
-                        url=url,
-                        fetched_at=fetched_at,
-                        fetch_method=page.method,
-                        extractor="llm",
-                        ok=True,
-                    )
-                )
+                result.sources.append(_source(url, fetched_at, page.method, "llm", ok=True))
 
     # Dọn lần cuối: mã số thuế có thể được tìm thấy ở trang khác với trang chứa
     # số điện thoại, nên bộ lọc trong từng trang chưa đủ để loại nó khỏi phones.

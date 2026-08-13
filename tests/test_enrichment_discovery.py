@@ -63,3 +63,18 @@ def test_no_provider_returns_empty_instead_of_raising():
 def test_search_result_model():
     result = SearchResult(url="https://example.com", title="T", snippet="S")
     assert result.url == "https://example.com"
+
+
+def test_skips_build_assets_and_functional_pages():
+    from saletool.enrichment.discovery import _should_skip
+
+    assert _should_skip("https://acme.vn/_next/static/chunks/webpack-01d756.js")
+    assert _should_skip("https://acme.vn/static/css/main.6cf63a.css")
+    # Query cache-busting đứng sau đuôi file -> vẫn phải nhận ra là CSS.
+    assert _should_skip("https://acme.vn/assets/app.css?v=9f2a")
+    assert _should_skip("https://acme.vn/logo.png")
+    assert _should_skip("https://acme.vn/login")
+
+    assert not _should_skip("https://acme.vn/about-us")
+    assert not _should_skip("https://acme.vn/lien-he")
+    assert not _should_skip("https://acme.vn/")

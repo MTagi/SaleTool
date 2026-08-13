@@ -118,3 +118,31 @@ def test_same_phone_in_different_formats_is_deduplicated():
         "<html></html>", text="Tel: +84 28 3822 1234 hoac 028 3822 1234"
     )
     assert len(data.phones) == 1
+
+
+SHARE_BUTTON_PAGE = """
+<html><body>
+<a href="https://www.facebook.com/sharer/sharer.php?u=https://acme.vn">Share</a>
+<a href="https://twitter.com/intent/tweet?url=https://acme.vn">Tweet</a>
+<a href="https://www.linkedin.com/shareArticle?url=https://acme.vn">Share</a>
+<a href="https://www.youtube.com/watch?v=abc123">Xem video</a>
+<a href="https://www.facebook.com/acmevn">Fanpage</a>
+<a href="https://www.linkedin.com/company/acme-vn/ ">LinkedIn</a>
+</body></html>
+"""
+
+
+def test_share_buttons_are_not_treated_as_company_profiles():
+    data = extract_structured(SHARE_BUTTON_PAGE, text="")
+
+    # Nút share nằm trước link thật trong HTML — link thật vẫn phải thắng.
+    assert data.social_links["facebook"] == "https://www.facebook.com/acmevn"
+    assert "sharer" not in data.social_links["facebook"]
+    assert "twitter" not in data.social_links  # chỉ có intent/tweet -> bỏ hẳn
+    assert "youtube" not in data.social_links  # /watch là video, không phải kênh
+
+
+def test_social_url_is_stripped():
+    data = extract_structured(SHARE_BUTTON_PAGE, text="")
+
+    assert data.social_links["linkedin"] == "https://www.linkedin.com/company/acme-vn/"

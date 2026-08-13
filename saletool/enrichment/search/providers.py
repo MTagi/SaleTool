@@ -5,7 +5,7 @@
 - `brave`   : Brave Search API (đã bỏ free tier từ 02/2026, tính tiền theo request)
 - `tavily`  : tối ưu cho LLM, trả sẵn nội dung đã làm sạch
 - `serper`  : rẻ nhất nhưng là scrape SERP Google — có rủi ro ToS, xem
-              research/linkedin-company-search/05-phap-ly-tuan-thu.md
+              docs/research/linkedin-company-search/05-phap-ly-tuan-thu.md
 """
 
 from __future__ import annotations

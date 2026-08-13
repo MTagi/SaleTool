@@ -38,6 +38,9 @@ pip install -r requirements-dev.txt
 cp .env.example .env   # điền APOLLO_API_KEY nếu dùng provider apollo
 ```
 
+Chạy trên Windows, hoặc muốn dựng luôn cả SearXNG để có web search miễn phí:
+xem [docs/chay-local.md](docs/chay-local.md).
+
 ## Sử dụng
 
 1. Mô tả mục tiêu tìm kiếm trong file YAML/JSON — xem mẫu tại
@@ -248,7 +251,9 @@ saletool/
       enrich.py                  # /api/enrich, /api/enrich/jobs[/{id}]
 frontend/               # React SPA (Vite) "ABIM Sales Assistant", tiếng Anh
                          # — Search, Enrichment, History, Settings, Account
-research/               # khảo sát: các cách lấy dữ liệu công ty trên LinkedIn
+docs/
+  chay-local.md          # hướng dẫn chạy local (SaleTool + SearXNG) trên Windows
+  research/              # khảo sát: các cách lấy dữ liệu công ty trên LinkedIn
 examples/
   search_criteria.example.yaml
   companies_export.example.csv
