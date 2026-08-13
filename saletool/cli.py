@@ -20,11 +20,29 @@ def cli() -> None:
 
 @cli.command()
 @click.option("--config", "config_path", required=True, help="File input format (.yaml/.json) mô tả mục tiêu tìm kiếm.")
-@click.option("--provider", default="mock", show_default=True, help="Nhà cung cấp dữ liệu: mock, apollo.")
+@click.option("--provider", default="mock", show_default=True, help="Nhà cung cấp dữ liệu: mock, apollo, csv_import.")
 @click.option("--api-key", default=None, help="API key của provider (mặc định lấy từ biến môi trường).")
+@click.option(
+    "--companies-csv",
+    default=None,
+    help="[csv_import] File CSV danh sách công ty bạn tự export/copy (vd: từ Sales Navigator).",
+)
+@click.option(
+    "--contacts-csv",
+    default=None,
+    help="[csv_import] File CSV danh sách liên hệ bạn tự export/copy (tuỳ chọn).",
+)
 @click.option("--output", "output_path", default="output.csv", show_default=True, help="File kết quả (.csv hoặc .json).")
 @click.option("--verbose", is_flag=True, help="In log chi tiết.")
-def search(config_path: str, provider: str, api_key: str | None, output_path: str, verbose: bool) -> None:
+def search(
+    config_path: str,
+    provider: str,
+    api_key: str | None,
+    companies_csv: str | None,
+    contacts_csv: str | None,
+    output_path: str,
+    verbose: bool,
+) -> None:
     """Chạy pipeline tìm công ty + liên hệ cấp cao theo file cấu hình."""
 
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(levelname)s %(message)s")
@@ -34,6 +52,12 @@ def search(config_path: str, provider: str, api_key: str | None, output_path: st
     provider_kwargs = {}
     if provider == "apollo":
         provider_kwargs["api_key"] = api_key or os.environ.get("APOLLO_API_KEY", "")
+    elif provider == "csv_import":
+        if not companies_csv:
+            raise click.UsageError("Provider csv_import cần --companies-csv")
+        provider_kwargs["companies_csv"] = companies_csv
+        if contacts_csv:
+            provider_kwargs["contacts_csv"] = contacts_csv
 
     provider_instance = get_provider(provider, **provider_kwargs)
     results = run_search(criteria, provider_instance)

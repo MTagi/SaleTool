@@ -17,6 +17,19 @@ Kiến trúc dùng interface `CompanyContactProvider` (`saletool/providers/base.
 nên có thể bổ sung thêm provider khác (People Data Labs, Proxycurl, Clearbit...)
 mà không phải sửa pipeline.
 
+### Đang dùng LinkedIn Sales Navigator?
+
+Sales Navigator (kể cả gói trả phí) **không** tự cấp API key để gọi tự động —
+LinkedIn chỉ cấp Sales Navigator API cho đối tác CRM được duyệt chính thức.
+Vì vậy SaleTool có provider **`csv_import`** theo mô hình *human-in-the-loop*:
+bạn tự tìm kiếm/duyệt trên Sales Navigator bằng trình duyệt của chính mình
+(đúng ToS), tự export/copy kết quả ra CSV, rồi đưa cho SaleTool chuẩn hoá +
+lọc theo seniority + xuất kết quả. Xem file mẫu
+`examples/companies_export.example.csv` và `examples/contacts_export.example.csv`
+— tên cột không cần khớp chính xác, provider tự nhận diện qua alias
+(`saletool/providers/csv_import.py`). Nếu cột "seniority" không có sẵn,
+SaleTool tự suy luận từ chức danh (`saletool/seniority.py`).
+
 ## Cài đặt
 
 ```bash
@@ -50,6 +63,17 @@ cp .env.example .env   # điền APOLLO_API_KEY nếu dùng provider apollo
      --output output.csv
    ```
 
+4. Hoặc dùng dữ liệu bạn tự export thủ công từ Sales Navigator (CSV):
+
+   ```bash
+   python -m saletool.cli search \
+     --config examples/search_criteria.example.yaml \
+     --provider csv_import \
+     --companies-csv examples/companies_export.example.csv \
+     --contacts-csv examples/contacts_export.example.csv \
+     --output output.csv
+   ```
+
 Kết quả xuất ra CSV (mặc định) hoặc JSON (`--output result.json`), mỗi dòng
 là 1 cặp (công ty, liên hệ).
 
@@ -68,11 +92,15 @@ saletool/
   providers/
     base.py            # interface CompanyContactProvider
     apollo.py           # provider Apollo.io
+    csv_import.py        # provider import CSV thủ công (vd: Sales Navigator)
     mock.py              # provider giả lập để demo/test
+  seniority.py         # suy luận seniority từ title tự do
   pipeline.py          # điều phối: tìm công ty -> tìm liên hệ mỗi công ty
   output.py             # xuất CSV/JSON
   cli.py                 # CLI: saletool search --config ... --provider ...
 examples/
   search_criteria.example.yaml
+  companies_export.example.csv
+  contacts_export.example.csv
 tests/
 ```

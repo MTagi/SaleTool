@@ -13,4 +13,8 @@ def get_provider(name: str, **kwargs) -> CompanyContactProvider:
         from saletool.providers.apollo import ApolloProvider
 
         return ApolloProvider(**kwargs)
+    if name == "csv_import":
+        from saletool.providers.csv_import import CsvImportProvider
+
+        return CsvImportProvider(**kwargs)
     raise ValueError(f"Provider không được hỗ trợ: {name}")
