@@ -1,0 +1,2 @@
+# Cài thêm khi dùng SALETOOL_DB_BACKEND=mongo.
+pymongo>=4.6

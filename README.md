@@ -77,37 +77,75 @@ cp .env.example .env   # điền APOLLO_API_KEY nếu dùng provider apollo
 Kết quả xuất ra CSV (mặc định) hoặc JSON (`--output result.json`), mỗi dòng
 là 1 cặp (công ty, liên hệ).
 
-## Web UI (có đăng nhập)
+## Web UI (FastAPI API + React, có đăng nhập)
 
-Ngoài CLI, SaleTool có web UI chạy bằng FastAPI, bảo vệ bằng đăng nhập
-(session cookie + mật khẩu băm PBKDF2, lưu tài khoản trong SQLite). Không có
-tự đăng ký công khai — tài khoản do người vận hành tạo qua CLI, phù hợp một
-tool dùng nội bộ trong nhóm nhỏ.
+Kiến trúc: **backend FastAPI** (JSON API thuần, JWT bearer auth) +
+**frontend React** (SPA riêng, thư mục `frontend/`, gọi API qua fetch) +
+**database qua lớp abstraction** (`saletool/db/`) — mặc định SQLite, đổi sang
+MongoDB chỉ cần set biến môi trường, không phải sửa route/logic auth. Không
+có tự đăng ký công khai — tài khoản do người vận hành tạo qua CLI, phù hợp
+một tool dùng nội bộ trong nhóm nhỏ.
+
+### Chạy backend
 
 ```bash
-# 1. Đặt secret key để phiên đăng nhập không mất khi restart server
+pip install -r requirements-dev.txt
+
+# Đặt secret key để JWT không đổi khi restart server
 export SALETOOL_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 
-# 2. Tạo tài khoản đăng nhập
+# Tạo tài khoản đăng nhập (dùng DB backend hiện tại, mặc định sqlite)
 python -m saletool.cli web create-user --username demo
 
-# 3. Chạy server
+# Chạy API
 python -m saletool.cli web serve --host 127.0.0.1 --port 8000
 ```
 
-Mở `http://127.0.0.1:8000`, đăng nhập, điền tiêu chí tìm kiếm, chọn provider
-(`mock` để demo, `apollo` với API key, hoặc `csv_import` để tải lên CSV bạn
-tự export từ Sales Navigator), bấm **Tìm kiếm**. Kết quả hiển thị dạng bảng
-theo từng công ty kèm liên hệ cấp cao, có nút tải về CSV/JSON.
+API chính: `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/search`
+(multipart — hỗ trợ upload CSV cho provider `csv_import`), `GET
+/api/download/{csv,json}`. Xem `saletool/api/routes/`.
+
+### Chạy frontend (React)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Mở `http://127.0.0.1:5173`. Vite dev server proxy sẵn `/api/*` sang
+`http://127.0.0.1:8000` (xem `frontend/vite.config.js`) nên không cần cấu
+hình CORS thủ công lúc phát triển. Đăng nhập, điền tiêu chí tìm kiếm, chọn
+provider (`mock` để demo, `apollo` với API key, hoặc `csv_import` để tải lên
+CSV tự export từ Sales Navigator), bấm **Tìm kiếm** — kết quả hiển thị dạng
+bảng theo từng công ty kèm liên hệ cấp cao, có nút tải CSV/JSON.
+
+Build production: `npm run build` (ra `frontend/dist/`) — deploy tĩnh sau
+1 reverse proxy trỏ `/api/*` về FastAPI, phần còn lại phục vụ file tĩnh.
+
+### Đổi database sang MongoDB (sau này)
+
+```bash
+pip install -r requirements-mongo.txt   # thêm pymongo
+export SALETOOL_DB_BACKEND=mongo
+export SALETOOL_MONGO_URI="mongodb://localhost:27017"
+export SALETOOL_MONGO_DB=saletool
+```
+
+`saletool/db/base.py` định nghĩa interface `UserRepository`;
+`sqlite_repo.py` và `mongo_repo.py` là 2 implementation — `saletool/db/factory.py`
+chọn theo `SALETOOL_DB_BACKEND`. Muốn thêm DB khác chỉ cần viết thêm 1
+implementation mới theo interface này.
 
 **Phạm vi bảo mật:** phù hợp dùng nội bộ sau HTTPS reverse proxy đáng tin cậy.
-Chưa có: giới hạn số lần đăng nhập sai, khôi phục mật khẩu, CSRF token riêng —
-cần bổ sung thêm nếu triển khai ra ngoài internet công khai.
+Chưa có: giới hạn số lần đăng nhập sai, refresh token/thu hồi token, khôi phục
+mật khẩu — cần bổ sung thêm nếu triển khai ra ngoài internet công khai.
 
 ## Test
 
 ```bash
-pytest
+pytest              # backend (Python)
+cd frontend && npm run build   # frontend (kiểm tra biên dịch)
 ```
 
 ## Cấu trúc dự án
@@ -116,6 +154,7 @@ pytest
 saletool/
   models.py          # SearchCriteria, Company, Contact, CompanyResult
   config.py           # nạp input format YAML/JSON
+  security.py          # băm/xác thực mật khẩu (PBKDF2, stdlib only)
   providers/
     base.py            # interface CompanyContactProvider
     apollo.py           # provider Apollo.io
@@ -125,12 +164,19 @@ saletool/
   pipeline.py          # điều phối: tìm công ty -> tìm liên hệ mỗi công ty
   output.py             # xuất CSV/JSON
   cli.py                 # CLI: saletool search / saletool web serve|create-user
-  web/
-    app.py                # FastAPI app: login, dashboard, search, download
-    auth.py                # băm/xác thực mật khẩu (PBKDF2, stdlib only)
-    users_db.py             # lưu tài khoản (SQLite)
-    templates/               # Jinja2: base, login, dashboard, results
-    static/style.css          # giao diện
+  db/
+    base.py               # interface UserRepository
+    sqlite_repo.py          # implementation SQLite (mặc định)
+    mongo_repo.py            # implementation MongoDB (sẵn sàng, chưa bật mặc định)
+    factory.py                # chọn implementation theo SALETOOL_DB_BACKEND
+  api/
+    app.py               # FastAPI app: CORS, include routers
+    auth.py                # cấp phát/xác minh JWT
+    deps.py                 # dependency get_current_user
+    routes/
+      auth.py                 # /api/auth/login, /api/auth/me
+      search.py                # /api/search, /api/download/{fmt}
+frontend/               # React SPA (Vite) — login, dashboard, results
 examples/
   search_criteria.example.yaml
   companies_export.example.csv
