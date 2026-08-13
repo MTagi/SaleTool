@@ -77,6 +77,33 @@ cp .env.example .env   # điền APOLLO_API_KEY nếu dùng provider apollo
 Kết quả xuất ra CSV (mặc định) hoặc JSON (`--output result.json`), mỗi dòng
 là 1 cặp (công ty, liên hệ).
 
+## Web UI (có đăng nhập)
+
+Ngoài CLI, SaleTool có web UI chạy bằng FastAPI, bảo vệ bằng đăng nhập
+(session cookie + mật khẩu băm PBKDF2, lưu tài khoản trong SQLite). Không có
+tự đăng ký công khai — tài khoản do người vận hành tạo qua CLI, phù hợp một
+tool dùng nội bộ trong nhóm nhỏ.
+
+```bash
+# 1. Đặt secret key để phiên đăng nhập không mất khi restart server
+export SALETOOL_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+
+# 2. Tạo tài khoản đăng nhập
+python -m saletool.cli web create-user --username demo
+
+# 3. Chạy server
+python -m saletool.cli web serve --host 127.0.0.1 --port 8000
+```
+
+Mở `http://127.0.0.1:8000`, đăng nhập, điền tiêu chí tìm kiếm, chọn provider
+(`mock` để demo, `apollo` với API key, hoặc `csv_import` để tải lên CSV bạn
+tự export từ Sales Navigator), bấm **Tìm kiếm**. Kết quả hiển thị dạng bảng
+theo từng công ty kèm liên hệ cấp cao, có nút tải về CSV/JSON.
+
+**Phạm vi bảo mật:** phù hợp dùng nội bộ sau HTTPS reverse proxy đáng tin cậy.
+Chưa có: giới hạn số lần đăng nhập sai, khôi phục mật khẩu, CSRF token riêng —
+cần bổ sung thêm nếu triển khai ra ngoài internet công khai.
+
 ## Test
 
 ```bash
@@ -97,7 +124,13 @@ saletool/
   seniority.py         # suy luận seniority từ title tự do
   pipeline.py          # điều phối: tìm công ty -> tìm liên hệ mỗi công ty
   output.py             # xuất CSV/JSON
-  cli.py                 # CLI: saletool search --config ... --provider ...
+  cli.py                 # CLI: saletool search / saletool web serve|create-user
+  web/
+    app.py                # FastAPI app: login, dashboard, search, download
+    auth.py                # băm/xác thực mật khẩu (PBKDF2, stdlib only)
+    users_db.py             # lưu tài khoản (SQLite)
+    templates/               # Jinja2: base, login, dashboard, results
+    static/style.css          # giao diện
 examples/
   search_criteria.example.yaml
   companies_export.example.csv

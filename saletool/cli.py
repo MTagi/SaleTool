@@ -71,5 +71,35 @@ def search(
     click.echo(f"Xong: {len(results)} công ty, {total_contacts} liên hệ -> {output_path}")
 
 
+@cli.group()
+def web() -> None:
+    """Quản lý và chạy web UI có đăng nhập."""
+
+
+@web.command("create-user")
+@click.option("--username", prompt=True)
+@click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
+def web_create_user(username: str, password: str) -> None:
+    """Tạo tài khoản đăng nhập cho web UI (không có tự đăng ký công khai)."""
+    from saletool.web.users_db import create_user
+
+    try:
+        create_user(username, password)
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+    click.echo(f"Đã tạo tài khoản '{username}'.")
+
+
+@web.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8000, show_default=True)
+@click.option("--reload", is_flag=True, help="Tự reload khi code thay đổi (chỉ dùng khi phát triển).")
+def web_serve(host: str, port: int, reload: bool) -> None:
+    """Chạy web UI (FastAPI + uvicorn)."""
+    import uvicorn
+
+    uvicorn.run("saletool.web.app:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     cli()

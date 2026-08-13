@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Đăng nhập · SaleTool{% endblock %}
+{% block content %}
+<div class="auth-card">
+  <h1>SaleTool</h1>
+  <p class="muted">Đăng nhập để tìm công ty &amp; liên hệ cấp cao.</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/login">
+    <label>Tên đăng nhập
+      <input type="text" name="username" required autofocus autocomplete="username" />
+    </label>
+    <label>Mật khẩu
+      <input type="password" name="password" required autocomplete="current-password" />
+    </label>
+    <button type="submit">Đăng nhập</button>
+  </form>
+</div>
+{% endblock %}

@@ -9,3 +9,4 @@ dist/
 output.csv
 output.json
 .pytest_cache/
+saletool.db

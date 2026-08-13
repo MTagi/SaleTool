@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Tìm kiếm · SaleTool{% endblock %}
+{% block content %}
+<h1>Tìm công ty &amp; liên hệ cấp cao</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/search" enctype="multipart/form-data" class="search-form">
+  <fieldset>
+    <legend>Tiêu chí công ty</legend>
+    <label>Ngành (phân tách bằng dấu phẩy)
+      <input type="text" name="industries" placeholder="Software, Fintech" />
+    </label>
+    <label>Từ khoá
+      <input type="text" name="keywords" placeholder="payments, lending" />
+    </label>
+    <label>Vị trí
+      <input type="text" name="locations" placeholder="Vietnam, Singapore" />
+    </label>
+    <div class="row">
+      <label>Quy mô tối thiểu (nhân sự)
+        <input type="number" name="company_size_min" min="0" />
+      </label>
+      <label>Quy mô tối đa (nhân sự)
+        <input type="number" name="company_size_max" min="0" />
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Liên hệ muốn lấy</legend>
+    <label>Chức danh cụ thể (phân tách bằng dấu phẩy)
+      <input type="text" name="target_titles" placeholder="CEO, Head of Sales" />
+    </label>
+    <span class="field-label">Cấp bậc</span>
+    <div class="checkbox-grid">
+      {% for level in seniority_levels %}
+      <label class="checkbox">
+        <input type="checkbox" name="seniority_levels" value="{{ level }}" {% if level in default_seniority %}checked{% endif %} />
+        {{ level }}
+      </label>
+      {% endfor %}
+    </div>
+    <div class="row">
+      <label>Số công ty tối đa
+        <input type="number" name="max_companies" value="20" min="1" />
+      </label>
+      <label>Số liên hệ / công ty
+        <input type="number" name="max_contacts_per_company" value="5" min="1" />
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Nguồn dữ liệu</legend>
+    <label>Provider
+      <select name="provider" id="provider-select">
+        <option value="mock">mock — demo, không cần API key</option>
+        <option value="apollo">apollo — cần API key Apollo.io</option>
+        <option value="csv_import">csv_import — tự export CSV (vd: Sales Navigator)</option>
+      </select>
+    </label>
+
+    <div class="provider-fields" data-provider="apollo">
+      <label>Apollo API key
+        <input type="password" name="apollo_api_key" autocomplete="off" />
+      </label>
+    </div>
+
+    <div class="provider-fields" data-provider="csv_import">
+      <p class="muted small-note">
+        Tự tìm kiếm/duyệt trên Sales Navigator bằng trình duyệt của bạn, export
+        kết quả ra CSV, rồi tải lên đây.
+      </p>
+      <label>File CSV danh sách công ty
+        <input type="file" name="companies_csv" accept=".csv" />
+      </label>
+      <label>File CSV danh sách liên hệ (tuỳ chọn)
+        <input type="file" name="contacts_csv" accept=".csv" />
+      </label>
+    </div>
+  </fieldset>
+
+  <button type="submit" class="primary">Tìm kiếm</button>
+</form>
+
+<script>
+  (function () {
+    var select = document.getElementById("provider-select");
+    var groups = document.querySelectorAll(".provider-fields");
+    function sync() {
+      groups.forEach(function (g) {
+        g.style.display = g.dataset.provider === select.value ? "block" : "none";
+      });
+    }
+    select.addEventListener("change", sync);
+    sync();
+  })();
+</script>
+{% endblock %}

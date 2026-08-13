@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}SaleTool{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  {% if user %}
+  <header class="topbar">
+    <a class="brand" href="/">SaleTool</a>
+    <nav>
+      <span class="user">{{ user }}</span>
+      <a href="/logout">Đăng xuất</a>
+    </nav>
+  </header>
+  {% endif %}
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
