@@ -213,3 +213,119 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   margin: 0 0 16px;
 }
 .account-username { margin: 4px 0 0; font-size: 17px; font-weight: 650; }
+
+/* ---- Forms: textarea + secondary button ---- */
+form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: 14px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+button.secondary:hover { background: var(--accent-soft); }
+button.secondary:disabled { opacity: 0.6; cursor: default; }
+
+form code {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* ---- Settings: connection test ---- */
+.test-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.test-ok { color: var(--success-fg); font-size: 13px; }
+.test-fail { color: var(--error-fg); font-size: 13px; }
+
+/* ---- Auto-enrich bar on the search page ---- */
+.auto-enrich-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.auto-enrich-bar .checkbox { color: var(--ink); }
+
+/* ---- Job progress ---- */
+.job-progress {
+  border: 1px solid var(--line);
+  background: var(--paper-raised);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 14px 0;
+}
+.job-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  margin-bottom: 8px;
+}
+.progress-bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+/* ---- Enrichment results ---- */
+.enrich-inline { padding: 12px 18px; border-top: 1px dashed var(--line); }
+.enrich-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
+.enrich-description { margin: 0 0 6px; font-size: 14px; }
+.enrich-detail { display: flex; gap: 10px; font-size: 13.5px; align-items: baseline; }
+.enrich-detail-label {
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 92px;
+  flex-shrink: 0;
+}
+.enrich-execs { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.enrich-execs .contact-row { padding: 6px 0; }
+.enrich-sources { margin-top: 8px; }
+.source-list {
+  list-style: none;
+  padding: 8px 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+.enrich-results { margin-top: 24px; }

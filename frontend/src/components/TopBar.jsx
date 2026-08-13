@@ -1,6 +1,14 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
+const NAV_ITEMS = [
+  { to: "/", label: "Search", end: true },
+  { to: "/enrichment", label: "Enrichment" },
+  { to: "/history", label: "History" },
+  { to: "/settings", label: "Settings" },
+  { to: "/account", label: "Account" },
+];
+
 export default function TopBar() {
   const { user, logout } = useAuth();
   if (!user) return null;
@@ -11,15 +19,16 @@ export default function TopBar() {
         ABIM Sales Assistant
       </NavLink>
       <nav>
-        <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
-          Search
-        </NavLink>
-        <NavLink to="/history" className={({ isActive }) => (isActive ? "active" : "")}>
-          History
-        </NavLink>
-        <NavLink to="/account" className={({ isActive }) => (isActive ? "active" : "")}>
-          Account
-        </NavLink>
+        {NAV_ITEMS.map(({ to, label, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) => (isActive ? "active" : "")}
+          >
+            {label}
+          </NavLink>
+        ))}
         <button className="link-button" onClick={logout}>
           Log out
         </button>

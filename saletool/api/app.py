@@ -16,13 +16,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from saletool.api.routes import auth as auth_routes
+from saletool.api.routes import enrich as enrich_routes
 from saletool.api.routes import search as search_routes
+from saletool.api.routes import settings as settings_routes
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="SaleTool API")
+    app = FastAPI(title="ABIM Sales Assistant API")
 
     origins = [
         origin.strip()
@@ -39,6 +41,8 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_routes.router)
     app.include_router(search_routes.router)
+    app.include_router(settings_routes.router)
+    app.include_router(enrich_routes.router)
 
     @app.get("/api/health")
     def health() -> dict:

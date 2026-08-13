@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { DEFAULT_SENIOR_LEVELS, PROVIDERS, SENIORITY_LEVELS } from "../constants";
 
@@ -24,6 +24,17 @@ export default function Dashboard() {
   const [contactsCsv, setContactsCsv] = useState(null);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [autoEnrich, setAutoEnrich] = useState(false);
+
+  // Seed the toggle from the saved default, but let the user override it per search.
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((data) => setAutoEnrich(Boolean(data.settings.enrichment.auto_enrich_on_search)))
+      .catch(() => {
+        /* Settings are optional here — the toggle just stays off. */
+      });
+  }, []);
 
   function update(name, value) {
     setFields((f) => ({ ...f, [name]: value }));
@@ -54,7 +65,24 @@ export default function Dashboard() {
       }
 
       const data = await api.search(formData);
-      navigate("/results", { state: data });
+
+      // Kick off enrichment before navigating so the results page can poll a job
+      // that is already running. A failure here must not lose the search results.
+      let enrichJobId = null;
+      if (autoEnrich && data.companies?.length) {
+        try {
+          const targets = data.companies.map((r) => ({
+            company_name: r.company.name,
+            domain: r.company.domain || null,
+          }));
+          const { job_id } = await api.startEnrich(targets);
+          enrichJobId = job_id;
+        } catch (err) {
+          console.warn("Auto-enrich could not start:", err.message);
+        }
+      }
+
+      navigate("/results", { state: { ...data, enrichJobId } });
     } catch (err) {
       setError(err.message || "Search failed.");
     } finally {
@@ -66,6 +94,21 @@ export default function Dashboard() {
     <main className="container">
       <h1>Find companies &amp; senior contacts</h1>
       {error && <p className="error">{error}</p>}
+
+      <div className="auto-enrich-bar">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={autoEnrich}
+            onChange={(e) => setAutoEnrich(e.target.checked)}
+          />
+          <strong>Auto-enrich</strong> — after the search, read each company's website for contact
+          details and leadership
+        </label>
+        <Link to="/settings" className="small">
+          Configure
+        </Link>
+      </div>
 
       <form onSubmit={handleSubmit}>
         <fieldset>

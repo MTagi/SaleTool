@@ -7,7 +7,19 @@ import Dashboard from "./pages/Dashboard";
 import Results from "./pages/Results";
 import History from "./pages/History";
 import HistoryDetail from "./pages/HistoryDetail";
+import Enrichment from "./pages/Enrichment";
+import Settings from "./pages/Settings";
 import Account from "./pages/Account";
+
+const PROTECTED_ROUTES = [
+  { path: "/", element: <Dashboard /> },
+  { path: "/results", element: <Results /> },
+  { path: "/history", element: <History /> },
+  { path: "/history/:runId", element: <HistoryDetail /> },
+  { path: "/enrichment", element: <Enrichment /> },
+  { path: "/settings", element: <Settings /> },
+  { path: "/account", element: <Account /> },
+];
 
 export default function App() {
   const { loading } = useAuth();
@@ -18,46 +30,9 @@ export default function App() {
       <TopBar />
       <Routes>
         <Route path="/login" element={<LoginOrRedirect />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/results"
-          element={
-            <ProtectedRoute>
-              <Results />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/history"
-          element={
-            <ProtectedRoute>
-              <History />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/history/:runId"
-          element={
-            <ProtectedRoute>
-              <HistoryDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/account"
-          element={
-            <ProtectedRoute>
-              <Account />
-            </ProtectedRoute>
-          }
-        />
+        {PROTECTED_ROUTES.map(({ path, element }) => (
+          <Route key={path} path={path} element={<ProtectedRoute>{element}</ProtectedRoute>} />
+        ))}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

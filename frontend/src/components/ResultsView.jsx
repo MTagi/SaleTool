@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { getToken } from "../api/client";
+import { api, getToken } from "../api/client";
+import { EnrichProgress, EnrichmentResult } from "./EnrichJobView";
+import { useEnrichJob } from "../hooks/useEnrichJob";
 
 async function downloadFile(fmt, runId) {
   const token = getToken();
@@ -19,7 +21,61 @@ async function downloadFile(fmt, runId) {
   URL.revokeObjectURL(url);
 }
 
-export default function ResultsView({ companies, totalCompanies, totalContacts, runId }) {
+/** A company is "thin" when the search provider gave us almost nothing to work with. */
+function isMissingInfo(company, contacts) {
+  return !company.industry || !company.location || !company.employee_count || contacts.length === 0;
+}
+
+/** Per-company enrich button; renders the result inline once the job finishes. */
+function CompanyEnrichment({ company, autoResult }) {
+  const [jobId, setJobId] = useState(null);
+  const [error, setError] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const { job } = useEnrichJob(jobId);
+
+  // A result handed down from the page-level auto-enrich run takes precedence.
+  const result = autoResult || job?.results?.[0];
+  const running = job && (job.status === "pending" || job.status === "running");
+
+  async function start() {
+    setError(null);
+    setStarting(true);
+    try {
+      const { job_id } = await api.startEnrich([
+        { company_name: company.name, domain: company.domain || null },
+      ]);
+      setJobId(job_id);
+    } catch (err) {
+      setError(err.message || "Couldn't start enrichment.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  if (result) {
+    return <EnrichmentResult result={result} />;
+  }
+
+  return (
+    <div className="enrich-inline">
+      {!jobId && (
+        <button className="secondary" onClick={start} disabled={starting}>
+          {starting ? "Starting…" : "Enrich"}
+        </button>
+      )}
+      {running && <EnrichProgress job={job} />}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+export default function ResultsView({
+  companies,
+  totalCompanies,
+  totalContacts,
+  runId,
+  autoEnrichJob,
+}) {
   const [downloadError, setDownloadError] = useState(null);
 
   async function handleDownload(fmt) {
@@ -29,6 +85,12 @@ export default function ResultsView({ companies, totalCompanies, totalContacts, 
     } catch (err) {
       setDownloadError(err.message);
     }
+  }
+
+  // Index auto-enrich results by company name so each card can pick up its own.
+  const autoResults = {};
+  for (const result of autoEnrichJob?.results || []) {
+    autoResults[result.company_name] = result;
   }
 
   return (
@@ -45,6 +107,8 @@ export default function ResultsView({ companies, totalCompanies, totalContacts, 
       <p className="muted">
         {totalCompanies} companies · {totalContacts} contacts
       </p>
+
+      {autoEnrichJob && <EnrichProgress job={autoEnrichJob} />}
 
       {companies.length === 0 && <p>No companies matched your criteria.</p>}
 
@@ -81,6 +145,10 @@ export default function ResultsView({ companies, totalCompanies, totalContacts, 
               {c.email && <span className="contact-email">{c.email}</span>}
             </div>
           ))}
+
+          {isMissingInfo(r.company, r.contacts) && (
+            <CompanyEnrichment company={r.company} autoResult={autoResults[r.company.name]} />
+          )}
         </div>
       ))}
     </>

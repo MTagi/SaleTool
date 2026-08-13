@@ -1,7 +1,6 @@
-"""Implementation MongoDB của UserRepository/SearchRunRepository — sẵn sàng để
-chuyển sang khi cần scale, chưa bật mặc định. Cần cài thêm `pymongo` (không
-nằm trong requirements.txt gốc, xem requirements-mongo.txt) và một MongoDB
-server.
+"""Implementation MongoDB của các repository — sẵn sàng để chuyển sang khi cần
+scale, chưa bật mặc định. Cần cài thêm `pymongo` (không nằm trong
+requirements.txt gốc, xem requirements-mongo.txt) và một MongoDB server.
 
 `client` cho phép inject 1 client tương thích pymongo (vd: mongomock trong
 test) thay vì luôn kết nối MongoDB thật.
@@ -13,8 +12,22 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from saletool.db.base import SearchRunRepository, UserRepository
-from saletool.models import CompanyResult, SearchCriteria, SearchRunDetail, SearchRunSummary
+from saletool.crypto import decrypt, encrypt
+from saletool.db.base import (
+    EnrichJobRepository,
+    SearchRunRepository,
+    SettingsRepository,
+    UserRepository,
+)
+from saletool.models import (
+    AppSettings,
+    CompanyResult,
+    EnrichJobDetail,
+    EnrichJobSummary,
+    SearchCriteria,
+    SearchRunDetail,
+    SearchRunSummary,
+)
 
 
 def _connect(client: Any, uri: str) -> Any:
@@ -141,3 +154,75 @@ class MongoSearchRunRepository(SearchRunRepository):
             total_contacts=doc["total_contacts"],
             results=[CompanyResult.model_validate(r) for r in doc["results"]],
         )
+
+
+class MongoSettingsRepository(SettingsRepository):
+    """Cấu hình lưu trong 1 document duy nhất (_id = "app") — phạm vi toàn hệ thống."""
+
+    _DOC_ID = "app"
+
+    def __init__(self, uri: str, db_name: str, client: Any = None):
+        self._collection = _connect(client, uri)[db_name]["app_settings"]
+
+    def get_settings(self) -> AppSettings:
+        doc = self._collection.find_one({"_id": self._DOC_ID})
+        if not doc:
+            return AppSettings()
+
+        payload = {k: v for k, v in doc.items() if k != "_id"}
+        settings = AppSettings.model_validate(payload)
+        settings.llm.api_key = decrypt(settings.llm.api_key)
+        settings.search.api_key = decrypt(settings.search.api_key)
+        return settings
+
+    def save_settings(self, settings: AppSettings, updated_by: str) -> AppSettings:
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        to_store = settings.model_copy(deep=True)
+        to_store.llm.api_key = encrypt(to_store.llm.api_key)
+        to_store.search.api_key = encrypt(to_store.search.api_key)
+        to_store.updated_at = updated_at
+        to_store.updated_by = updated_by
+
+        self._collection.replace_one(
+            {"_id": self._DOC_ID},
+            {"_id": self._DOC_ID, **to_store.model_dump(mode="json")},
+            upsert=True,
+        )
+
+        saved = settings.model_copy(deep=True)
+        saved.updated_at = updated_at
+        saved.updated_by = updated_by
+        return saved
+
+
+class MongoEnrichJobRepository(EnrichJobRepository):
+    def __init__(self, uri: str, db_name: str, client: Any = None):
+        self._collection = _connect(client, uri)[db_name]["enrich_jobs"]
+        self._collection.create_index([("username", 1), ("created_at", -1)])
+
+    def create_job(self, job: EnrichJobDetail) -> None:
+        doc = job.model_dump(mode="json")
+        doc["_id"] = doc.pop("id")
+        self._collection.insert_one(doc)
+
+    def update_job(self, job: EnrichJobDetail) -> None:
+        doc = job.model_dump(mode="json")
+        doc.pop("id", None)
+        self._collection.update_one({"_id": job.id, "username": job.username}, {"$set": doc})
+
+    def get_job(self, username: str, job_id: str) -> EnrichJobDetail | None:
+        doc = self._collection.find_one({"_id": job_id, "username": username})
+        return self._doc_to_detail(doc) if doc else None
+
+    def list_jobs(self, username: str, limit: int = 20) -> list[EnrichJobSummary]:
+        cursor = (
+            self._collection.find({"username": username}, {"results": 0, "targets": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        return [EnrichJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
+
+    @staticmethod
+    def _doc_to_detail(doc: dict) -> EnrichJobDetail:
+        return EnrichJobDetail.model_validate({**doc, "id": doc["_id"]})

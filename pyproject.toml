@@ -12,10 +12,13 @@ dependencies = [
     "uvicorn>=0.29",
     "python-multipart>=0.0.9",
     "PyJWT>=2.8",
+    "cryptography>=42.0",
+    "trafilatura>=1.12",
 ]
 
 [project.optional-dependencies]
 mongo = ["pymongo>=4.6"]
+browser = ["playwright>=1.44"]
 
 [project.scripts]
 saletool = "saletool.cli:cli"

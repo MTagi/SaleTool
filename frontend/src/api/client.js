@@ -46,4 +46,12 @@ export const api = {
   search: (formData) => request("/api/search", { method: "POST", body: formData, isForm: true }),
   listRuns: () => request("/api/search/runs"),
   getRun: (runId) => request(`/api/search/runs/${runId}`),
+
+  getSettings: () => request("/api/settings"),
+  saveSettings: (settings) => request("/api/settings", { method: "PUT", body: settings }),
+  testConnection: (target) => request("/api/settings/test", { method: "POST", body: { target } }),
+
+  startEnrich: (targets) => request("/api/enrich", { method: "POST", body: { targets } }),
+  getEnrichJob: (jobId) => request(`/api/enrich/jobs/${jobId}`),
+  listEnrichJobs: () => request("/api/enrich/jobs"),
 };

@@ -1,5 +1,5 @@
-"""Implementation SQLite của UserRepository/SearchRunRepository — mặc định
-hiện tại, 1 file, không cần server DB riêng."""
+"""Implementation SQLite của các repository — mặc định hiện tại, 1 file, không
+cần server DB riêng."""
 
 from __future__ import annotations
 
@@ -9,8 +9,22 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from saletool.db.base import SearchRunRepository, UserRepository
-from saletool.models import CompanyResult, SearchCriteria, SearchRunDetail, SearchRunSummary
+from saletool.crypto import decrypt, encrypt
+from saletool.db.base import (
+    EnrichJobRepository,
+    SearchRunRepository,
+    SettingsRepository,
+    UserRepository,
+)
+from saletool.models import (
+    AppSettings,
+    CompanyResult,
+    EnrichJobDetail,
+    EnrichJobSummary,
+    SearchCriteria,
+    SearchRunDetail,
+    SearchRunSummary,
+)
 
 
 class SQLiteUserRepository(UserRepository):
@@ -199,3 +213,131 @@ class SQLiteSearchRunRepository(SearchRunRepository):
             total_contacts=total_contacts,
             results=[CompanyResult.model_validate(r) for r in json.loads(results_json)],
         )
+
+
+class SQLiteSettingsRepository(SettingsRepository):
+    """Cấu hình lưu trong 1 dòng duy nhất (id = 1) — phạm vi toàn hệ thống."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._init_db()
+
+    def _init_db(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    settings_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    updated_by TEXT
+                )
+                """
+            )
+
+    def get_settings(self) -> AppSettings:
+        with sqlite3.connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT settings_json, updated_at, updated_by FROM app_settings WHERE id = 1"
+            ).fetchone()
+
+        if not row:
+            return AppSettings()
+
+        settings = AppSettings.model_validate_json(row[0])
+        settings.updated_at = row[1]
+        settings.updated_by = row[2]
+        # API key nằm trong DB ở dạng đã mã hoá — giải ra cho tầng gọi dùng.
+        settings.llm.api_key = decrypt(settings.llm.api_key)
+        settings.search.api_key = decrypt(settings.search.api_key)
+        return settings
+
+    def save_settings(self, settings: AppSettings, updated_by: str) -> AppSettings:
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        to_store = settings.model_copy(deep=True)
+        to_store.llm.api_key = encrypt(to_store.llm.api_key)
+        to_store.search.api_key = encrypt(to_store.search.api_key)
+        to_store.updated_at = updated_at
+        to_store.updated_by = updated_by
+
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                INSERT INTO app_settings (id, settings_json, updated_at, updated_by)
+                VALUES (1, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    settings_json = excluded.settings_json,
+                    updated_at = excluded.updated_at,
+                    updated_by = excluded.updated_by
+                """,
+                (to_store.model_dump_json(), updated_at, updated_by),
+            )
+
+        saved = settings.model_copy(deep=True)
+        saved.updated_at = updated_at
+        saved.updated_by = updated_by
+        return saved
+
+
+class SQLiteEnrichJobRepository(EnrichJobRepository):
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._init_db()
+
+    def _init_db(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS enrich_jobs (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    job_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_enrich_jobs_username ON enrich_jobs(username, created_at DESC)"
+            )
+
+    def create_job(self, job: EnrichJobDetail) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "INSERT INTO enrich_jobs (id, username, status, created_at, job_json) VALUES (?, ?, ?, ?, ?)",
+                (job.id, job.username, job.status, job.created_at, job.model_dump_json()),
+            )
+
+    def update_job(self, job: EnrichJobDetail) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "UPDATE enrich_jobs SET status = ?, job_json = ? WHERE id = ? AND username = ?",
+                (job.status, job.model_dump_json(), job.id, job.username),
+            )
+
+    def get_job(self, username: str, job_id: str) -> EnrichJobDetail | None:
+        with sqlite3.connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT job_json FROM enrich_jobs WHERE id = ? AND username = ?",
+                (job_id, username),
+            ).fetchone()
+        return EnrichJobDetail.model_validate_json(row[0]) if row else None
+
+    def list_jobs(self, username: str, limit: int = 20) -> list[EnrichJobSummary]:
+        with sqlite3.connect(self.path) as conn:
+            rows = conn.execute(
+                """
+                SELECT job_json FROM enrich_jobs
+                WHERE username = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (username, limit),
+            ).fetchall()
+
+        # Bỏ `results` (nặng) khi chỉ cần liệt kê.
+        return [
+            EnrichJobSummary.model_validate(EnrichJobDetail.model_validate_json(row[0]).model_dump())
+            for row in rows
+        ]

@@ -92,3 +92,181 @@ class SearchRunDetail(SearchRunSummary):
 
     results: list[CompanyResult] = Field(default_factory=list)
 
+
+# ---------------------------------------------------------------------------
+# Cấu hình (trang Settings)
+# ---------------------------------------------------------------------------
+
+LLM_PROVIDERS = ["openrouter", "openai_compatible"]
+
+# "none" = không dùng web search, chỉ đọc website của chính công ty.
+SEARCH_PROVIDERS = ["none", "searxng", "brave", "tavily", "serper"]
+
+# Provider nào cần API key, provider nào không — frontend dùng để hiện đúng ô nhập.
+SEARCH_PROVIDERS_REQUIRING_KEY = ["brave", "tavily", "serper"]
+
+MASKED_SECRET = "__SALETOOL_UNCHANGED__"
+"""Giá trị frontend gửi lại khi người dùng KHÔNG sửa API key.
+
+Backend không bao giờ trả key thật về client; nó trả về bản mask để hiển thị.
+Khi lưu, nếu nhận lại đúng sentinel này thì giữ nguyên key cũ."""
+
+
+class LLMSettings(BaseModel):
+    enabled: bool = True
+    provider: str = "openrouter"
+    api_key: Optional[str] = None
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str = "google/gemini-2.0-flash-001"
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    max_output_tokens: int = Field(default=2048, gt=0)
+
+
+class SearchSettings(BaseModel):
+    provider: str = "none"
+    api_key: Optional[str] = None
+    searxng_url: Optional[str] = Field(
+        default=None, description="URL instance SearXNG tự host, vd: http://localhost:8080"
+    )
+    max_results: int = Field(default=5, gt=0, le=50)
+
+
+class EnrichmentSettings(BaseModel):
+    """Bật/tắt từng tầng của pipeline enrich.
+
+    Thứ tự chạy: structured data (rẻ + chính xác nhất) -> website công ty ->
+    web search -> LLM (chỉ cho phần còn thiếu).
+    """
+
+    use_structured_data: bool = Field(
+        default=True, description="Tầng 0: JSON-LD schema.org, thẻ meta, regex — không tốn LLM"
+    )
+    use_company_website: bool = Field(default=True, description="Đọc sitemap + crawl nông website công ty")
+    use_web_search: bool = Field(default=False, description="Tìm các trang bên ngoài nói về công ty")
+    use_llm: bool = Field(default=True, description="Dùng LLM trích xuất phần không parse được bằng code")
+    use_browser_fallback: bool = Field(
+        default=True, description="Dùng Playwright khi trang render bằng JS (chậm hơn nhiều)"
+    )
+
+    max_pages_per_company: int = Field(default=8, gt=0, le=50)
+    request_timeout_seconds: float = Field(default=15.0, gt=0)
+    request_delay_seconds: float = Field(
+        default=1.0, ge=0, description="Nghỉ giữa 2 request tới cùng 1 domain — giữ mức lịch sự"
+    )
+    respect_robots_txt: bool = True
+    user_agent: str = "SaleToolBot/1.0 (+contact: set-your-email@example.com)"
+
+    auto_enrich_on_search: bool = Field(
+        default=False, description="Tự động enrich toàn bộ công ty ngay sau khi search xong"
+    )
+
+
+class AppSettings(BaseModel):
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    search: SearchSettings = Field(default_factory=SearchSettings)
+    enrichment: EnrichmentSettings = Field(default_factory=EnrichmentSettings)
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Kết quả enrich
+# ---------------------------------------------------------------------------
+
+
+class EnrichmentSource(BaseModel):
+    """Provenance — mỗi mẩu dữ liệu đến từ đâu.
+
+    Đây là yêu cầu tuân thủ, không phải tính năng phụ: khi bị hỏi "dữ liệu này ở
+    đâu ra?" phải trả lời được cho từng bản ghi.
+    """
+
+    url: str
+    fetched_at: str
+    fetch_method: str = Field(description="http | browser")
+    extractor: str = Field(description="json_ld | meta | regex | llm")
+    ok: bool = True
+    note: Optional[str] = None
+
+
+class Executive(BaseModel):
+    full_name: str
+    title: Optional[str] = None
+    seniority: Optional[str] = None
+    email: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    source_url: Optional[str] = None
+
+
+class CompanyEnrichment(BaseModel):
+    """Thông tin thu được sau khi enrich 1 công ty."""
+
+    company_name: str
+    domain: Optional[str] = None
+
+    description: Optional[str] = None
+    industry: Optional[str] = None
+    founded_year: Optional[int] = None
+    headquarters: Optional[str] = None
+    employee_count_text: Optional[str] = None
+
+    emails: list[str] = Field(default_factory=list)
+    phones: list[str] = Field(default_factory=list)
+    addresses: list[str] = Field(default_factory=list)
+    social_links: dict[str, str] = Field(default_factory=dict)
+    technologies: list[str] = Field(default_factory=list)
+    executives: list[Executive] = Field(default_factory=list)
+
+    tax_code: Optional[str] = Field(default=None, description="Mã số thuế / mã số doanh nghiệp")
+
+    sources: list[EnrichmentSource] = Field(default_factory=list)
+    pages_fetched: int = 0
+    llm_calls: int = 0
+    enriched_at: Optional[str] = None
+
+    def is_empty(self) -> bool:
+        """True khi không thu được thông tin gì đáng kể — dùng để hiện nút Enrich lại."""
+        return not any(
+            [
+                self.description,
+                self.emails,
+                self.phones,
+                self.addresses,
+                self.executives,
+                self.social_links,
+                self.tax_code,
+            ]
+        )
+
+
+class EnrichTarget(BaseModel):
+    """1 công ty cần enrich. Ít nhất phải có tên hoặc domain."""
+
+    company_name: str
+    domain: Optional[str] = None
+    extra_context: Optional[str] = Field(
+        default=None, description="Gợi ý thêm cho LLM/search, vd: 'fintech ở TP.HCM'"
+    )
+
+
+JOB_STATUSES = ["pending", "running", "completed", "failed", "cancelled"]
+
+
+class EnrichJobSummary(BaseModel):
+    id: str
+    username: str
+    status: str
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    current_target: Optional[str] = None
+    error: Optional[str] = None
+
+
+class EnrichJobDetail(EnrichJobSummary):
+    targets: list[EnrichTarget] = Field(default_factory=list)
+    results: list[CompanyEnrichment] = Field(default_factory=list)
+
