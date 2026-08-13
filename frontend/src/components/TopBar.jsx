@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function TopBar() {
@@ -7,14 +7,21 @@ export default function TopBar() {
 
   return (
     <header className="topbar">
-      <Link className="brand" to="/">
-        SaleTool
-      </Link>
+      <NavLink className="brand" to="/">
+        ABIM Sales Assistant
+      </NavLink>
       <nav>
-        <Link to="/history">Lịch sử</Link>
-        <span className="user">{user}</span>
+        <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
+          Search
+        </NavLink>
+        <NavLink to="/history" className={({ isActive }) => (isActive ? "active" : "")}>
+          History
+        </NavLink>
+        <NavLink to="/account" className={({ isActive }) => (isActive ? "active" : "")}>
+          Account
+        </NavLink>
         <button className="link-button" onClick={logout}>
-          Đăng xuất
+          Log out
         </button>
       </nav>
     </header>

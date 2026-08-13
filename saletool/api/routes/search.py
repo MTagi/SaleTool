@@ -61,7 +61,7 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
             max_contacts_per_company=int(field("max_contacts_per_company", "5") or 5),
         )
     except Exception as exc:  # noqa: BLE001 - trả lỗi input rõ ràng cho client
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Tiêu chí không hợp lệ: {exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid criteria: {exc}")
 
     provider_name = field("provider", "mock")
     tmp_paths: list[Path] = []
@@ -70,12 +70,12 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
         if provider_name == "apollo":
             api_key = field("apollo_api_key")
             if not api_key:
-                raise ValueError("Provider apollo cần API key.")
+                raise ValueError("Provider 'apollo' requires an API key.")
             provider_kwargs["api_key"] = api_key
         elif provider_name == "csv_import":
             companies_upload = form.get("companies_csv")
             if not companies_upload or not getattr(companies_upload, "filename", None):
-                raise ValueError("Provider csv_import cần file CSV danh sách công ty.")
+                raise ValueError("Provider 'csv_import' requires a companies CSV file.")
             companies_path = await _save_upload(companies_upload)
             tmp_paths.append(companies_path)
             provider_kwargs["companies_csv"] = str(companies_path)
@@ -89,7 +89,7 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
         provider_instance = get_provider(provider_name, **provider_kwargs)
         results = run_search(criteria, provider_instance)
     except Exception as exc:  # noqa: BLE001 - trả lỗi rõ ràng thay vì 500 trắng
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Không chạy được tìm kiếm: {exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Search failed: {exc}")
     finally:
         for p in tmp_paths:
             p.unlink(missing_ok=True)
@@ -119,19 +119,19 @@ def list_runs(user: str = Depends(get_current_user), limit: int = 20) -> list[di
 def get_run(run_id: str, user: str = Depends(get_current_user)) -> dict:
     run = get_search_run_repository().get_run(user, run_id)
     if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lần tìm kiếm này.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search run not found.")
     return run.model_dump()
 
 
 @router.get("/download/{fmt}")
 def download(fmt: str, run_id: str | None = None, user: str = Depends(get_current_user)) -> Response:
     if fmt not in ("csv", "json"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Định dạng không hỗ trợ (dùng csv hoặc json).")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported format (use csv or json).")
 
     repo = get_search_run_repository()
     run = repo.get_run(user, run_id) if run_id else repo.get_latest_run(user)
     if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chưa có kết quả tìm kiếm nào để tải.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No search results to download yet.")
 
     fd, tmp_path_str = tempfile.mkstemp(suffix=f".{fmt}")
     os.close(fd)

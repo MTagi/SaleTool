@@ -21,6 +21,10 @@ class UserRepository(ABC):
     def get_password_hash(self, username: str) -> str | None:
         """Trả về password hash đã lưu, hoặc None nếu không tìm thấy user."""
 
+    @abstractmethod
+    def update_password_hash(self, username: str, password_hash: str) -> None:
+        """Cập nhật password hash cho user đã tồn tại. Raise ValueError nếu không tìm thấy."""
+
 
 class SearchRunRepository(ABC):
     @abstractmethod

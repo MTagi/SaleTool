@@ -6,7 +6,7 @@ async function downloadFile(fmt, runId) {
   const res = await fetch(`/api/download/${fmt}?run_id=${encodeURIComponent(runId)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error(`Không tải được file (${res.status})`);
+  if (!res.ok) throw new Error(`Couldn't download the file (${res.status})`);
 
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
@@ -35,18 +35,18 @@ export default function ResultsView({ companies, totalCompanies, totalContacts, 
     <>
       <div className="actions">
         <button className="link-button" onClick={() => handleDownload("csv")}>
-          Tải CSV
+          Download CSV
         </button>
         <button className="link-button" onClick={() => handleDownload("json")}>
-          Tải JSON
+          Download JSON
         </button>
       </div>
       {downloadError && <p className="error">{downloadError}</p>}
       <p className="muted">
-        {totalCompanies} công ty · {totalContacts} liên hệ
+        {totalCompanies} companies · {totalContacts} contacts
       </p>
 
-      {companies.length === 0 && <p>Không có công ty nào khớp tiêu chí.</p>}
+      {companies.length === 0 && <p>No companies matched your criteria.</p>}
 
       {companies.map((r, i) => (
         <div className="company-card" key={r.company.linkedin_url || r.company.name || i}>
@@ -54,7 +54,7 @@ export default function ResultsView({ companies, totalCompanies, totalContacts, 
             <span className="company-name">{r.company.name}</span>
             <span className="company-meta">
               {[r.company.industry, r.company.location].filter(Boolean).join(" · ")}
-              {r.company.employee_count ? ` · ${r.company.employee_count} nhân sự` : ""}
+              {r.company.employee_count ? ` · ${r.company.employee_count} employees` : ""}
               {r.company.linkedin_url && (
                 <>
                   {" · "}
@@ -66,7 +66,7 @@ export default function ResultsView({ companies, totalCompanies, totalContacts, 
             </span>
           </div>
 
-          {r.contacts.length === 0 && <p className="muted small">Không tìm thấy liên hệ cấp cao.</p>}
+          {r.contacts.length === 0 && <p className="muted small">No senior contacts found.</p>}
 
           {r.contacts.map((c, j) => (
             <div className="contact-row" key={c.linkedin_url || c.full_name || j}>

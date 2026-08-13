@@ -77,7 +77,11 @@ cp .env.example .env   # điền APOLLO_API_KEY nếu dùng provider apollo
 Kết quả xuất ra CSV (mặc định) hoặc JSON (`--output result.json`), mỗi dòng
 là 1 cặp (công ty, liên hệ).
 
-## Web UI (FastAPI API + React, có đăng nhập)
+## Web UI — "ABIM Sales Assistant" (FastAPI API + React, có đăng nhập)
+
+Giao diện web mang tên **ABIM Sales Assistant**, toàn bộ UI bằng tiếng Anh,
+gồm 3 trang chính: **Search** (form tìm kiếm), **History** (lịch sử tìm
+kiếm), **Account** (thông tin tài khoản + đổi mật khẩu).
 
 Kiến trúc: **backend FastAPI** (JSON API thuần, JWT bearer auth) +
 **frontend React** (SPA riêng, thư mục `frontend/`, gọi API qua fetch) +
@@ -101,11 +105,12 @@ python -m saletool.cli web create-user --username demo
 python -m saletool.cli web serve --host 127.0.0.1 --port 8000
 ```
 
-API chính: `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/search`
-(multipart — hỗ trợ upload CSV cho provider `csv_import`, tự lưu vào lịch sử),
-`GET /api/search/runs` (danh sách lịch sử), `GET /api/search/runs/{run_id}`
-(chi tiết 1 lần chạy), `GET /api/download/{csv,json}?run_id=...` (mặc định
-lần gần nhất nếu không truyền `run_id`). Xem `saletool/api/routes/`.
+API chính: `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/change-password`,
+`POST /api/search` (multipart — hỗ trợ upload CSV cho provider `csv_import`,
+tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
+`GET /api/search/runs/{run_id}` (chi tiết 1 lần chạy), `GET
+/api/download/{csv,json}?run_id=...` (mặc định lần gần nhất nếu không truyền
+`run_id`). Xem `saletool/api/routes/`.
 
 ### Chạy frontend (React)
 
@@ -117,12 +122,14 @@ npm run dev
 
 Mở `http://127.0.0.1:5173`. Vite dev server proxy sẵn `/api/*` sang
 `http://127.0.0.1:8000` (xem `frontend/vite.config.js`) nên không cần cấu
-hình CORS thủ công lúc phát triển. Đăng nhập, điền tiêu chí tìm kiếm, chọn
-provider (`mock` để demo, `apollo` với API key, hoặc `csv_import` để tải lên
-CSV tự export từ Sales Navigator), bấm **Tìm kiếm** — kết quả hiển thị dạng
-bảng theo từng công ty kèm liên hệ cấp cao, có nút tải CSV/JSON. Mỗi lần tìm
-kiếm được lưu lại — trang **Lịch sử** liệt kê các lần chạy trước (tiêu chí,
-provider, số công ty/liên hệ, thời gian) và cho xem lại/tải lại kết quả cũ.
+hình CORS thủ công lúc phát triển. Đăng nhập, điền tiêu chí tìm kiếm ở trang
+**Search**, chọn provider (`mock` để demo, `apollo` với API key, hoặc
+`csv_import` để tải lên CSV tự export từ Sales Navigator), bấm **Search** —
+kết quả hiển thị dạng bảng theo từng công ty kèm liên hệ cấp cao, có nút tải
+CSV/JSON. Mỗi lần tìm kiếm được lưu lại — trang **History** liệt kê các lần
+chạy trước (tiêu chí, provider, số công ty/liên hệ, thời gian) và cho xem
+lại/tải lại kết quả cũ. Trang **Account** hiển thị tài khoản đang đăng nhập
+và cho đổi mật khẩu.
 
 Build production: `npm run build` (ra `frontend/dist/`) — deploy tĩnh sau
 1 reverse proxy trỏ `/api/*` về FastAPI, phần còn lại phục vụ file tĩnh.
@@ -179,9 +186,10 @@ saletool/
     auth.py                # cấp phát/xác minh JWT
     deps.py                 # dependency get_current_user
     routes/
-      auth.py                 # /api/auth/login, /api/auth/me
+      auth.py                 # /api/auth/login, /api/auth/me, /api/auth/change-password
       search.py                # /api/search, /api/search/runs[/{id}], /api/download/{fmt}
-frontend/               # React SPA (Vite) — login, dashboard, results, lịch sử
+frontend/               # React SPA (Vite) "ABIM Sales Assistant", tiếng Anh
+                         # — Search, History, Account
 examples/
   search_criteria.example.yaml
   companies_export.example.csv

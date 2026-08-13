@@ -52,6 +52,15 @@ class SQLiteUserRepository(UserRepository):
             ).fetchone()
         return row[0] if row else None
 
+    def update_password_hash(self, username: str, password_hash: str) -> None:
+        with sqlite3.connect(self.path) as conn:
+            cursor = conn.execute(
+                "UPDATE users SET password_hash = ? WHERE username = ?",
+                (password_hash, username.strip()),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"User '{username}' not found.")
+
 
 class SQLiteSearchRunRepository(SearchRunRepository):
     def __init__(self, path: str | Path):

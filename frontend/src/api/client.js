@@ -36,7 +36,7 @@ async function request(path, { method = "GET", body, isForm = false } = {}) {
   const data = isJson ? await res.json().catch(() => null) : null;
 
   if (!res.ok) {
-    const message = data?.detail || `Lỗi ${res.status}`;
+    const message = data?.detail || `Error ${res.status}`;
     throw new ApiError(message, res.status);
   }
 
@@ -46,6 +46,11 @@ async function request(path, { method = "GET", body, isForm = false } = {}) {
 export const api = {
   login: (username, password) => request("/api/auth/login", { method: "POST", body: { username, password } }),
   me: () => request("/api/auth/me"),
+  changePassword: (currentPassword, newPassword) =>
+    request("/api/auth/change-password", {
+      method: "POST",
+      body: { current_password: currentPassword, new_password: newPassword },
+    }),
   search: (formData) => request("/api/search", { method: "POST", body: formData, isForm: true }),
   listRuns: () => request("/api/search/runs"),
   getRun: (runId) => request(`/api/search/runs/${runId}`),

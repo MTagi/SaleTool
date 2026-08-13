@@ -48,7 +48,7 @@ export default function Dashboard() {
       Object.entries(fields).forEach(([key, value]) => formData.append(key, value));
       seniority.forEach((level) => formData.append("seniority_levels", level));
       if (fields.provider === "csv_import") {
-        if (!companiesCsv) throw new Error("Provider csv_import cần file CSV danh sách công ty.");
+        if (!companiesCsv) throw new Error("Provider 'csv_import' requires a companies CSV file.");
         formData.append("companies_csv", companiesCsv);
         if (contactsCsv) formData.append("contacts_csv", contactsCsv);
       }
@@ -56,7 +56,7 @@ export default function Dashboard() {
       const data = await api.search(formData);
       navigate("/results", { state: data });
     } catch (err) {
-      setError(err.message || "Không chạy được tìm kiếm.");
+      setError(err.message || "Search failed.");
     } finally {
       setSubmitting(false);
     }
@@ -64,14 +64,14 @@ export default function Dashboard() {
 
   return (
     <main className="container">
-      <h1>Tìm công ty &amp; liên hệ cấp cao</h1>
+      <h1>Find companies &amp; senior contacts</h1>
       {error && <p className="error">{error}</p>}
 
       <form className="search-form" onSubmit={handleSubmit}>
         <fieldset>
-          <legend>Tiêu chí công ty</legend>
+          <legend>Company criteria</legend>
           <label>
-            Ngành (phân tách bằng dấu phẩy)
+            Industries (comma-separated)
             <input
               type="text"
               placeholder="Software, Fintech"
@@ -80,7 +80,7 @@ export default function Dashboard() {
             />
           </label>
           <label>
-            Từ khoá
+            Keywords
             <input
               type="text"
               placeholder="payments, lending"
@@ -89,7 +89,7 @@ export default function Dashboard() {
             />
           </label>
           <label>
-            Vị trí
+            Locations
             <input
               type="text"
               placeholder="Vietnam, Singapore"
@@ -99,7 +99,7 @@ export default function Dashboard() {
           </label>
           <div className="row">
             <label>
-              Quy mô tối thiểu (nhân sự)
+              Minimum company size (employees)
               <input
                 type="number"
                 min="0"
@@ -108,7 +108,7 @@ export default function Dashboard() {
               />
             </label>
             <label>
-              Quy mô tối đa (nhân sự)
+              Maximum company size (employees)
               <input
                 type="number"
                 min="0"
@@ -120,9 +120,9 @@ export default function Dashboard() {
         </fieldset>
 
         <fieldset>
-          <legend>Liên hệ muốn lấy</legend>
+          <legend>Contacts to find</legend>
           <label>
-            Chức danh cụ thể (phân tách bằng dấu phẩy)
+            Specific job titles (comma-separated)
             <input
               type="text"
               placeholder="CEO, Head of Sales"
@@ -130,7 +130,7 @@ export default function Dashboard() {
               onChange={(e) => update("target_titles", e.target.value)}
             />
           </label>
-          <span className="field-label">Cấp bậc</span>
+          <span className="field-label">Seniority levels</span>
           <div className="checkbox-grid">
             {SENIORITY_LEVELS.map((level) => (
               <label key={level} className="checkbox">
@@ -145,7 +145,7 @@ export default function Dashboard() {
           </div>
           <div className="row">
             <label>
-              Số công ty tối đa
+              Max companies
               <input
                 type="number"
                 min="1"
@@ -154,7 +154,7 @@ export default function Dashboard() {
               />
             </label>
             <label>
-              Số liên hệ / công ty
+              Max contacts per company
               <input
                 type="number"
                 min="1"
@@ -166,7 +166,7 @@ export default function Dashboard() {
         </fieldset>
 
         <fieldset>
-          <legend>Nguồn dữ liệu</legend>
+          <legend>Data source</legend>
           <label>
             Provider
             <select value={fields.provider} onChange={(e) => update("provider", e.target.value)}>
@@ -195,15 +195,15 @@ export default function Dashboard() {
           {fields.provider === "csv_import" && (
             <div className="provider-fields">
               <p className="muted small-note">
-                Tự tìm kiếm/duyệt trên Sales Navigator bằng trình duyệt của bạn, export kết quả ra
-                CSV, rồi tải lên đây.
+                Search/browse Sales Navigator yourself in your browser, export the results to CSV,
+                then upload them here.
               </p>
               <label>
-                File CSV danh sách công ty
+                Companies CSV file
                 <input type="file" accept=".csv" onChange={(e) => setCompaniesCsv(e.target.files[0] ?? null)} />
               </label>
               <label>
-                File CSV danh sách liên hệ (tuỳ chọn)
+                Contacts CSV file (optional)
                 <input type="file" accept=".csv" onChange={(e) => setContactsCsv(e.target.files[0] ?? null)} />
               </label>
             </div>
@@ -211,7 +211,7 @@ export default function Dashboard() {
         </fieldset>
 
         <button type="submit" className="primary" disabled={submitting}>
-          {submitting ? "Đang tìm…" : "Tìm kiếm"}
+          {submitting ? "Searching…" : "Search"}
         </button>
       </form>
     </main>

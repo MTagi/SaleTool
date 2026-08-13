@@ -6,17 +6,17 @@ export default function Results() {
   const data = location.state;
 
   if (!data) {
-    // Người dùng vào thẳng /results (vd: reload trang) mà chưa có kết quả nào.
+    // User landed directly on /results (e.g. page reload) with no result to show.
     return <Navigate to="/" replace />;
   }
 
   return (
     <main className="container">
       <div className="results-header">
-        <h1>Kết quả</h1>
+        <h1>Results</h1>
         <div className="actions">
-          <Link to="/">Tìm kiếm mới</Link>
-          <Link to="/history">Lịch sử</Link>
+          <Link to="/">New search</Link>
+          <Link to="/history">History</Link>
         </div>
       </div>
       <ResultsView

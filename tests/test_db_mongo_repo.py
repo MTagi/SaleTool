@@ -36,6 +36,19 @@ def test_create_user_rejects_empty_fields(repo):
         repo.create_user("alice", "")
 
 
+def test_update_password_hash(repo):
+    repo.create_user("alice", "old-hash")
+
+    repo.update_password_hash("alice", "new-hash")
+
+    assert repo.get_password_hash("alice") == "new-hash"
+
+
+def test_update_password_hash_unknown_user_raises(repo):
+    with pytest.raises(ValueError):
+        repo.update_password_hash("nobody", "new-hash")
+
+
 @pytest.fixture
 def run_repo():
     client = mongomock.MongoClient()

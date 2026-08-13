@@ -40,6 +40,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth phải được gọi bên trong AuthProvider");
+  if (!ctx) throw new Error("useAuth must be called within an AuthProvider");
   return ctx;
 }

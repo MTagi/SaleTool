@@ -7,12 +7,12 @@ function formatCriteria(criteria) {
   if (criteria.keywords?.length) parts.push(criteria.keywords.join(", "));
   if (criteria.industries?.length) parts.push(criteria.industries.join(", "));
   if (criteria.locations?.length) parts.push(criteria.locations.join(", "));
-  return parts.length ? parts.join(" · ") : "(không có tiêu chí)";
+  return parts.length ? parts.join(" · ") : "(no criteria)";
 }
 
 function formatDate(iso) {
   try {
-    return new Date(iso).toLocaleString("vi-VN");
+    return new Date(iso).toLocaleString();
   } catch {
     return iso;
   }
@@ -26,28 +26,28 @@ export default function History() {
     api
       .listRuns()
       .then(setRuns)
-      .catch((err) => setError(err.message || "Không tải được lịch sử."));
+      .catch((err) => setError(err.message || "Couldn't load search history."));
   }, []);
 
   return (
     <main className="container">
       <div className="results-header">
-        <h1>Lịch sử tìm kiếm</h1>
+        <h1>Search history</h1>
         <div className="actions">
-          <Link to="/">Tìm kiếm mới</Link>
+          <Link to="/">New search</Link>
         </div>
       </div>
 
       {error && <p className="error">{error}</p>}
-      {runs === null && !error && <p className="muted">Đang tải…</p>}
-      {runs?.length === 0 && <p className="muted">Chưa có lần tìm kiếm nào.</p>}
+      {runs === null && !error && <p className="muted">Loading…</p>}
+      {runs?.length === 0 && <p className="muted">No searches yet.</p>}
 
       {runs?.map((run) => (
         <Link className="history-row" to={`/history/${run.id}`} key={run.id}>
           <div className="history-row-main">
             <span className="history-criteria">{formatCriteria(run.criteria)}</span>
             <span className="muted small">
-              {run.total_companies} công ty · {run.total_contacts} liên hệ · provider: {run.provider}
+              {run.total_companies} companies · {run.total_contacts} contacts · provider: {run.provider}
             </span>
           </div>
           <span className="muted small history-date">{formatDate(run.created_at)}</span>

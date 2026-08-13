@@ -158,3 +158,44 @@ def test_download_specific_run_by_id(client):
     resp = client.get(f"/api/download/csv?run_id={first['run_id']}", headers=headers)
     assert resp.status_code == 200
     assert "fintech Company 1" in resp.text
+
+
+def test_change_password_requires_auth(client):
+    resp = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "s3cret-pass", "new_password": "brand-new-pass"},
+    )
+    assert resp.status_code == 401
+
+
+def test_change_password_wrong_current_password_returns_401(client):
+    token = _login(client)
+    resp = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "wrong", "new_password": "brand-new-pass"},
+    )
+    assert resp.status_code == 401
+
+
+def test_change_password_too_short_returns_400(client):
+    token = _login(client)
+    resp = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "s3cret-pass", "new_password": "short"},
+    )
+    assert resp.status_code == 400
+
+
+def test_change_password_success_then_login_with_new_password(client):
+    token = _login(client)
+    resp = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "s3cret-pass", "new_password": "brand-new-pass"},
+    )
+    assert resp.status_code == 200
+
+    assert client.post("/api/auth/login", json={"username": "alice", "password": "s3cret-pass"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "alice", "password": "brand-new-pass"}).status_code == 200

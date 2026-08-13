@@ -11,7 +11,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Thiếu access token (Authorization: Bearer <token>).",
+            detail="Missing access token (Authorization: Bearer <token>).",
         )
 
     token = authorization.split(" ", 1)[1].strip()
@@ -19,6 +19,6 @@ def get_current_user(authorization: str | None = Header(default=None)) -> str:
     if not username:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token không hợp lệ hoặc đã hết hạn.",
+            detail="Token is invalid or has expired.",
         )
     return username

@@ -14,21 +14,21 @@ export default function HistoryDetail() {
     api
       .getRun(runId)
       .then(setRun)
-      .catch((err) => setError(err.message || "Không tải được lần tìm kiếm này."));
+      .catch((err) => setError(err.message || "Couldn't load this search."));
   }, [runId]);
 
   return (
     <main className="container">
       <div className="results-header">
-        <h1>Kết quả (lịch sử)</h1>
+        <h1>Result (history)</h1>
         <div className="actions">
-          <Link to="/history">← Lịch sử</Link>
-          <Link to="/">Tìm kiếm mới</Link>
+          <Link to="/history">← History</Link>
+          <Link to="/">New search</Link>
         </div>
       </div>
 
       {error && <p className="error">{error}</p>}
-      {!run && !error && <p className="muted">Đang tải…</p>}
+      {!run && !error && <p className="muted">Loading…</p>}
 
       {run && (
         <ResultsView

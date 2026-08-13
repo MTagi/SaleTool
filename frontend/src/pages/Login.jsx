@@ -18,7 +18,7 @@ export default function Login() {
       await login(username, password);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err.message || "Đăng nhập thất bại.");
+      setError(err.message || "Sign-in failed.");
     } finally {
       setSubmitting(false);
     }
@@ -27,12 +27,12 @@ export default function Login() {
   return (
     <main className="container">
       <div className="auth-card">
-        <h1>SaleTool</h1>
-        <p className="muted">Đăng nhập để tìm công ty &amp; liên hệ cấp cao.</p>
+        <h1>ABIM Sales Assistant</h1>
+        <p className="muted">Sign in to find companies and senior contacts.</p>
         {error && <p className="error">{error}</p>}
         <form onSubmit={handleSubmit}>
           <label>
-            Tên đăng nhập
+            Username
             <input
               type="text"
               value={username}
@@ -43,7 +43,7 @@ export default function Login() {
             />
           </label>
           <label>
-            Mật khẩu
+            Password
             <input
               type="password"
               value={password}
@@ -53,7 +53,7 @@ export default function Login() {
             />
           </label>
           <button type="submit" disabled={submitting}>
-            {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
+            {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
       </div>

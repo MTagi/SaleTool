@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Results from "./pages/Results";
 import History from "./pages/History";
 import HistoryDetail from "./pages/HistoryDetail";
+import Account from "./pages/Account";
 
 export default function App() {
   const { loading } = useAuth();
@@ -46,6 +47,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <HistoryDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/account"
+          element={
+            <ProtectedRoute>
+              <Account />
             </ProtectedRoute>
           }
         />

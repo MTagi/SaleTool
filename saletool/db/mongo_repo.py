@@ -51,6 +51,13 @@ class MongoUserRepository(UserRepository):
         doc = self._collection.find_one({"username": username.strip()})
         return doc["password_hash"] if doc else None
 
+    def update_password_hash(self, username: str, password_hash: str) -> None:
+        result = self._collection.update_one(
+            {"username": username.strip()}, {"$set": {"password_hash": password_hash}}
+        )
+        if result.matched_count == 0:
+            raise ValueError(f"User '{username}' not found.")
+
 
 class MongoSearchRunRepository(SearchRunRepository):
     def __init__(self, uri: str, db_name: str, client: Any = None):
