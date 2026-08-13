@@ -67,7 +67,7 @@ export default function Dashboard() {
       <h1>Find companies &amp; senior contacts</h1>
       {error && <p className="error">{error}</p>}
 
-      <form className="search-form" onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit}>
         <fieldset>
           <legend>Company criteria</legend>
           <label>

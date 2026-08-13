@@ -12,13 +12,6 @@ export function setToken(token) {
   }
 }
 
-class ApiError extends Error {
-  constructor(message, status) {
-    super(message);
-    this.status = status;
-  }
-}
-
 async function request(path, { method = "GET", body, isForm = false } = {}) {
   const headers = {};
   const token = getToken();
@@ -36,8 +29,7 @@ async function request(path, { method = "GET", body, isForm = false } = {}) {
   const data = isJson ? await res.json().catch(() => null) : null;
 
   if (!res.ok) {
-    const message = data?.detail || `Error ${res.status}`;
-    throw new ApiError(message, res.status);
+    throw new Error(data?.detail || `Error ${res.status}`);
   }
 
   return data;
@@ -54,7 +46,4 @@ export const api = {
   search: (formData) => request("/api/search", { method: "POST", body: formData, isForm: true }),
   listRuns: () => request("/api/search/runs"),
   getRun: (runId) => request(`/api/search/runs/${runId}`),
-  downloadUrl: (fmt, runId) => `/api/download/${fmt}?run_id=${encodeURIComponent(runId)}`,
 };
-
-export { ApiError };

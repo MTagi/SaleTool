@@ -44,7 +44,7 @@ export default function Account() {
         <p className="account-username">{user}</p>
       </fieldset>
 
-      <form className="search-form" onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit}>
         <fieldset>
           <legend>Change password</legend>
           {error && <p className="error">{error}</p>}
