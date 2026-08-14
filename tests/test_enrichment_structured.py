@@ -146,3 +146,25 @@ def test_social_url_is_stripped():
     data = extract_structured(SHARE_BUTTON_PAGE, text="")
 
     assert data.social_links["linkedin"] == "https://www.linkedin.com/company/acme-vn/"
+
+
+def test_href_with_leading_whitespace_is_still_recognised():
+    """href trải trên nhiều dòng bắt đầu bằng xuống dòng/khoảng trắng.
+
+    Trước đây bị loại ngay ở bước startswith() nên link mất hẳn, dù
+    social_profile() có strip — vì strip chạy sau cái cổng đó.
+    """
+    html = """
+    <html><body>
+      <a href="
+          https://www.linkedin.com/company/acme-vn
+      ">LinkedIn</a>
+      <a href="  mailto:sales@acme.vn  ">Email</a>
+      <a href=" tel:+842838221234 ">Hotline</a>
+    </body></html>
+    """
+    data = extract_structured(html, text="")
+
+    assert data.social_links.get("linkedin") == "https://www.linkedin.com/company/acme-vn"
+    assert "sales@acme.vn" in data.emails
+    assert data.phones, "tel: có khoảng trắng đầu bị mất"

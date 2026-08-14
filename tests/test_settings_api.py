@@ -168,3 +168,24 @@ def test_settings_persist_across_requests(client):
 
     assert body["settings"]["enrichment"]["max_pages_per_company"] == 3
     assert body["settings"]["updated_by"] == "alice"
+
+
+def test_saving_a_key_without_secret_key_returns_a_clear_error(tmp_path, monkeypatch):
+    """Thiếu SALETOOL_SECRET_KEY thì không mã hoá được API key.
+
+    Trước đây RuntimeError lọt ra ngoài thành 500 trống, người dùng không biết
+    phải làm gì — dù thông báo trong exception đã hướng dẫn sẵn cách sinh khoá.
+    """
+    db_path = tmp_path / "no_secret.db"
+    monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
+    monkeypatch.setenv("SALETOOL_DB_PATH", str(db_path))
+    monkeypatch.delenv("SALETOOL_SECRET_KEY", raising=False)
+
+    SQLiteUserRepository(db_path).create_user("alice", hash_password("s3cret-pass"))
+
+    with TestClient(app) as client:
+        headers = _auth(client)
+        resp = client.put("/api/settings", headers=headers, json=_valid_payload())
+
+    assert resp.status_code == 503
+    assert "SALETOOL_SECRET_KEY" in resp.json()["detail"]

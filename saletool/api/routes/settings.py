@@ -120,7 +120,14 @@ def write_settings(payload: AppSettings, user: str = Depends(get_current_user)) 
             detail="LLM extraction is enabled but no LLM API key is configured.",
         )
 
-    saved = repo.save_settings(payload, updated_by=user)
+    try:
+        saved = repo.save_settings(payload, updated_by=user)
+    except RuntimeError as exc:
+        # Thiếu SALETOOL_SECRET_KEY thì không mã hoá được API key. Bản thân
+        # exception đã có hướng dẫn sinh khoá — đừng để nó thành 500 trống rỗng.
+        logger.error("Không lưu được settings: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
     return {"settings": _to_client_view(saved)}
 
 

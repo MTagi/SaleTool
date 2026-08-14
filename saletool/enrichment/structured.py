@@ -128,7 +128,10 @@ class _MetaAndLinkParser(HTMLParser):
             self._buffer = []
 
         elif tag == "a":
-            href = attr.get("href", "")
+            # Strip ngay tại đây, trước mọi kiểm tra tiền tố: href trải trên
+            # nhiều dòng thì giá trị bắt đầu bằng xuống dòng/khoảng trắng, và
+            # startswith("http"/"mailto:"/"tel:") sẽ loại thẳng link hợp lệ.
+            href = (attr.get("href") or "").strip()
             low = href.lower()
             if low.startswith("mailto:"):
                 self.mailto.append(href[7:].split("?")[0].strip())
