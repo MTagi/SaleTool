@@ -1,6 +1,8 @@
 # Survey: Các cách lấy dữ liệu công ty trên LinkedIn
 
 > **Ngày khảo sát:** 13/08/2026
+> **Cập nhật:** 14/08/2026 — viết lại mục 2 của [`01-duong-chinh-thuc.md`](01-duong-chinh-thuc.md)
+> (LinkedIn Marketing API Program / MDP) với dữ liệu đối chiếu lại tới 14/08/2026.
 > **Bối cảnh:** Bạn đang có tài khoản LinkedIn Sales Navigator và muốn tìm ra
 > mọi con đường khả thi để lấy dữ liệu công ty (và liên hệ cấp cao) phục vụ
 > dự án SaleTool / ABIM Sales Assistant.
@@ -11,7 +13,7 @@
 
 | File | Nội dung |
 |---|---|
-| [`01-duong-chinh-thuc.md`](01-duong-chinh-thuc.md) | API chính thức của LinkedIn: SNAP, Marketing Developer Platform, LSI (đã khai tử), CRM sync |
+| [`01-duong-chinh-thuc.md`](01-duong-chinh-thuc.md) | API chính thức của LinkedIn: SNAP, **Marketing API Program / MDP (viết lại 14/08/2026)**, LSI (đã khai tử), CRM sync |
 | [`02-sales-navigator.md`](02-sales-navigator.md) | **Quan trọng nhất với bạn** — khai thác tối đa tài khoản đang có: bộ lọc, giới hạn thật, sự thật về export |
 | [`03-nha-cung-cap-ben-thu-ba.md`](03-nha-cung-cap-ben-thu-ba.md) | Mua dữ liệu: Apollo, PDL, Coresignal, Bright Data, ZoomInfo, Cognism |
 | [`04-scraping-tu-dong-hoa.md`](04-scraping-tu-dong-hoa.md) | Công cụ export/scrape (Evaboot, Wiza, PhantomBuster…) và rủi ro thật |

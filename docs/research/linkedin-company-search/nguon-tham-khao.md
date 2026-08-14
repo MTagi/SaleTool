@@ -36,6 +36,12 @@ kiểm chứng.
 - 🔒 [Sales Navigator Application Platform (SNAP) Documentation](https://learn.microsoft.com/en-us/linkedin/sales/) — nguồn của câu *"We are not currently accepting new partners…"*
 - 🔒 [Restricted Uses of LinkedIn Marketing APIs and Data](https://learn.microsoft.com/en-us/linkedin/marketing/restricted-use-cases?view=li-lms-2026-05)
 - 🔒 [Additional Terms for the LinkedIn Marketing API Program](https://www.linkedin.com/legal/l/marketing-api-terms)
+- 🔒 [LinkedIn Marketing API Program Data Storage Requirements](https://learn.microsoft.com/en-us/linkedin/marketing/data-storage-requirements?view=li-lms-2026-04) — mốc 24h / 48h / 6 tuần / 6 tháng
+- 🔒 [LinkedIn Marketing API Program Access Tiers](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-tiers?view=li-lms-2026-06) — Development vs Standard tier
+- 🔒 [LMS API Documentation Versioning](https://learn.microsoft.com/en-us/linkedin/marketing/versioning?view=li-lms-2026-07) — header `Linkedin-Version`, cửa sổ hỗ trợ 1 năm
+- 🔒 [Organization Lookup API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-04) — danh sách trường trả về khi không có ADMINISTRATOR role
+- 🔒 [Organization Search API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-search?view=li-lms-2026-02) — chỉ mở cho developer được chọn
+- 🔒 [Recent Marketing API Changes](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/recent-changes?view=li-lms-2026-06)
 - 🔒 [Export Account and Lead Information from Sales Navigator](https://www.linkedin.com/help/sales-navigator/answer/a102031) — nguồn của câu *"We currently don't offer the option to export…"*
 - 🔒 [Integration between Sales Navigator and your CRM – Overview](https://www.linkedin.com/help/sales-navigator/answer/a106005)
 - 🔒 [Turn the Salesforce Sync for Sales Navigator On and Off](https://www.linkedin.com/help/sales-navigator/answer/a102030)
