@@ -15,7 +15,9 @@ from typing import Any
 from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
     EnrichJobRepository,
+    MatchJobRepository,
     SearchRunRepository,
+    ServiceRepository,
     SettingsRepository,
     UserRepository,
 )
@@ -24,9 +26,13 @@ from saletool.models import (
     CompanyResult,
     EnrichJobDetail,
     EnrichJobSummary,
+    MatchJobDetail,
+    MatchJobSummary,
     SearchCriteria,
     SearchRunDetail,
     SearchRunSummary,
+    Service,
+    ServiceInput,
 )
 
 
@@ -226,3 +232,86 @@ class MongoEnrichJobRepository(EnrichJobRepository):
     @staticmethod
     def _doc_to_detail(doc: dict) -> EnrichJobDetail:
         return EnrichJobDetail.model_validate({**doc, "id": doc["_id"]})
+
+
+class MongoServiceRepository(ServiceRepository):
+    def __init__(self, uri: str, db_name: str, client: Any = None):
+        self._collection = _connect(client, uri)[db_name]["services"]
+        self._collection.create_index("name")
+
+    def list_services(self, include_inactive: bool = True) -> list[Service]:
+        query = {} if include_inactive else {"active": True}
+        cursor = self._collection.find(query).sort("name", 1)
+        return [self._doc_to_service(doc) for doc in cursor]
+
+    def get_service(self, service_id: str) -> Service | None:
+        doc = self._collection.find_one({"_id": service_id})
+        return self._doc_to_service(doc) if doc else None
+
+    def create_service(self, payload: ServiceInput, updated_by: str) -> Service:
+        now = datetime.now(timezone.utc).isoformat()
+        service = Service(
+            **payload.model_dump(),
+            id=str(uuid.uuid4()),
+            created_at=now,
+            updated_at=now,
+            updated_by=updated_by,
+        )
+
+        doc = service.model_dump(mode="json")
+        doc["_id"] = doc.pop("id")
+        self._collection.insert_one(doc)
+        return service
+
+    def update_service(self, service_id: str, payload: ServiceInput, updated_by: str) -> Service:
+        existing = self.get_service(service_id)
+        if not existing:
+            raise ValueError(f"Service '{service_id}' not found.")
+
+        service = Service(
+            **payload.model_dump(),
+            id=existing.id,
+            created_at=existing.created_at,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            updated_by=updated_by,
+        )
+
+        doc = service.model_dump(mode="json")
+        doc.pop("id", None)
+        self._collection.update_one({"_id": service_id}, {"$set": doc})
+        return service
+
+    def delete_service(self, service_id: str) -> bool:
+        return self._collection.delete_one({"_id": service_id}).deleted_count > 0
+
+    @staticmethod
+    def _doc_to_service(doc: dict) -> Service:
+        return Service.model_validate({**doc, "id": doc["_id"]})
+
+
+class MongoMatchJobRepository(MatchJobRepository):
+    def __init__(self, uri: str, db_name: str, client: Any = None):
+        self._collection = _connect(client, uri)[db_name]["match_jobs"]
+        self._collection.create_index([("username", 1), ("created_at", -1)])
+
+    def create_job(self, job: MatchJobDetail) -> None:
+        doc = job.model_dump(mode="json")
+        doc["_id"] = doc.pop("id")
+        self._collection.insert_one(doc)
+
+    def update_job(self, job: MatchJobDetail) -> None:
+        doc = job.model_dump(mode="json")
+        doc.pop("id", None)
+        self._collection.update_one({"_id": job.id, "username": job.username}, {"$set": doc})
+
+    def get_job(self, username: str, job_id: str) -> MatchJobDetail | None:
+        doc = self._collection.find_one({"_id": job_id, "username": username})
+        return MatchJobDetail.model_validate({**doc, "id": doc["_id"]}) if doc else None
+
+    def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
+        cursor = (
+            self._collection.find({"username": username}, {"results": 0, "services": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        return [MatchJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]

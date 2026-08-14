@@ -14,9 +14,13 @@ from saletool.models import (
     CompanyResult,
     EnrichJobDetail,
     EnrichJobSummary,
+    MatchJobDetail,
+    MatchJobSummary,
     SearchCriteria,
     SearchRunDetail,
     SearchRunSummary,
+    Service,
+    ServiceInput,
 )
 
 
@@ -91,4 +95,52 @@ class EnrichJobRepository(ABC):
 
     @abstractmethod
     def list_jobs(self, username: str, limit: int = 20) -> list[EnrichJobSummary]:
+        """Các job gần nhất của user, mới nhất trước."""
+
+
+class ServiceRepository(ABC):
+    """Catalog dịch vụ của chính công ty — phạm vi toàn hệ thống, không per-user.
+
+    Cả đội bán chung một bộ dịch vụ nên không tách theo user; `updated_by` ghi
+    lại ai sửa lần cuối.
+    """
+
+    @abstractmethod
+    def list_services(self, include_inactive: bool = True) -> list[Service]:
+        """Toàn bộ catalog, sắp theo tên."""
+
+    @abstractmethod
+    def get_service(self, service_id: str) -> Service | None:
+        """1 dịch vụ theo id. None nếu không tồn tại."""
+
+    @abstractmethod
+    def create_service(self, payload: ServiceInput, updated_by: str) -> Service:
+        """Thêm dịch vụ mới, trả về bản đã lưu (kèm id + timestamp đã sinh)."""
+
+    @abstractmethod
+    def update_service(self, service_id: str, payload: ServiceInput, updated_by: str) -> Service:
+        """Ghi đè 1 dịch vụ. Raise ValueError nếu id không tồn tại."""
+
+    @abstractmethod
+    def delete_service(self, service_id: str) -> bool:
+        """Xoá 1 dịch vụ. Trả về False nếu id không tồn tại."""
+
+
+class MatchJobRepository(ABC):
+    """Lưu trạng thái các job map dịch vụ <-> công ty chạy nền."""
+
+    @abstractmethod
+    def create_job(self, job: MatchJobDetail) -> None:
+        """Tạo bản ghi job mới."""
+
+    @abstractmethod
+    def update_job(self, job: MatchJobDetail) -> None:
+        """Ghi đè trạng thái job (dùng để cập nhật tiến độ)."""
+
+    @abstractmethod
+    def get_job(self, username: str, job_id: str) -> MatchJobDetail | None:
+        """Chi tiết 1 job. None nếu không tồn tại hoặc không thuộc user này."""
+
+    @abstractmethod
+    def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
         """Các job gần nhất của user, mới nhất trước."""

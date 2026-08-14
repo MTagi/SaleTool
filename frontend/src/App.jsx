@@ -8,6 +8,8 @@ import Results from "./pages/Results";
 import History from "./pages/History";
 import HistoryDetail from "./pages/HistoryDetail";
 import Enrichment from "./pages/Enrichment";
+import Catalog from "./pages/Catalog";
+import Matching from "./pages/Matching";
 import Settings from "./pages/Settings";
 import Account from "./pages/Account";
 
@@ -17,6 +19,8 @@ const PROTECTED_ROUTES = [
   { path: "/history", element: <History /> },
   { path: "/history/:runId", element: <HistoryDetail /> },
   { path: "/enrichment", element: <Enrichment /> },
+  { path: "/catalog", element: <Catalog /> },
+  { path: "/matching", element: <Matching /> },
   { path: "/settings", element: <Settings /> },
   { path: "/account", element: <Account /> },
 ];

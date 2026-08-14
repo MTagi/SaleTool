@@ -83,9 +83,11 @@ là 1 cặp (công ty, liên hệ).
 ## Web UI — "ABIM Sales Assistant" (FastAPI API + React, có đăng nhập)
 
 Giao diện web mang tên **ABIM Sales Assistant**, toàn bộ UI bằng tiếng Anh,
-gồm 5 trang: **Search** (form tìm kiếm), **Enrichment** (bổ sung dữ liệu công
-ty từ website), **History** (lịch sử tìm kiếm), **Settings** (cấu hình LLM +
-công cụ search + nguồn enrich), **Account** (tài khoản + đổi mật khẩu).
+gồm 7 trang: **Search** (form tìm kiếm), **Enrichment** (bổ sung dữ liệu công
+ty từ website), **Catalog** (danh mục dịch vụ công ty bạn đang bán),
+**Matching** (chấm và xếp hạng công ty theo dịch vụ, dùng LLM), **History**
+(lịch sử tìm kiếm), **Settings** (cấu hình LLM + công cụ search + nguồn
+enrich), **Account** (tài khoản + đổi mật khẩu).
 
 Kiến trúc: **backend FastAPI** (JSON API thuần, JWT bearer auth) +
 **frontend React** (SPA riêng, thư mục `frontend/`, gọi API qua fetch) +
@@ -115,7 +117,9 @@ tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
 `GET /api/search/runs/{run_id}` (chi tiết 1 lần chạy), `GET
 /api/download/{csv,json}?run_id=...` (mặc định lần gần nhất nếu không truyền
 `run_id`), `GET|PUT /api/settings` + `POST /api/settings/test`,
-`POST /api/enrich` + `GET /api/enrich/jobs[/{job_id}]`. Xem `saletool/api/routes/`.
+`POST /api/enrich` + `GET /api/enrich/jobs[/{job_id}]`,
+`GET|POST /api/catalog` + `PUT|DELETE /api/catalog/{service_id}`,
+`POST /api/match` + `GET /api/match/jobs[/{job_id}]`. Xem `saletool/api/routes/`.
 
 ### Chạy frontend (React)
 
@@ -167,6 +171,51 @@ hay browser, trích bằng parser hay LLM — xem nút "Show sources" trên từ
 **Giữ bước này ở mức rủi ro thấp:** mặc định tôn trọng `robots.txt`, nghỉ 1 giây
 giữa 2 request tới cùng domain, và dùng User-Agent trung thực. Đừng tắt các mục
 này trong Settings.
+
+### Catalog + Matching — xếp hạng công ty theo dịch vụ bạn bán
+
+Hai trang này trả lời câu hỏi cuối cùng của quy trình: *trong danh sách vừa tìm
+được, nên gọi ai trước?*
+
+**Trang Catalog** quản lý danh mục dịch vụ của chính công ty bạn — tên, dịch vụ
+làm gì, vì sao khách chọn bạn, ngành và quy mô khách hàng phù hợp, và **tín hiệu
+mua hàng** (dấu hiệu cho thấy một công ty đang cần dịch vụ đó). Catalog dùng
+chung cho cả đội, giống Settings.
+
+> Chất lượng mô tả ở đây quyết định trực tiếp chất lượng xếp hạng — LLM chỉ đọc
+> đúng những gì bạn ghi. Dịch vụ chỉ có mỗi cái tên sẽ được chấm dựa trên mỗi cái
+> tên. Trang này gắn nhãn `Too thin` / `Usable` / `Detailed` cho từng dịch vụ để
+> thấy ngay cái nào cần viết thêm.
+
+**Trang Matching** chọn 1 lần search trong lịch sử + các dịch vụ muốn map, tuỳ
+chọn thêm 1 câu mô tả tiêu chí ưu tiên (vd *"ưu tiên công ty đang mở rộng ở miền
+Bắc"*), rồi chạy nền và trả về danh sách đã xếp hạng.
+
+Cách chấm:
+
+| Bước | Ai làm | Vì sao |
+|---|---|---|
+| Dựng hồ sơ công ty | code | Gộp kết quả search + **dữ liệu enrich đã có** (nếu công ty đó từng được enrich) |
+| Chấm điểm từng cặp (công ty, dịch vụ) | LLM | 1 lượt gọi/công ty, thang điểm 0–100 mô tả sẵn trong prompt |
+| Tính điểm tổng + xếp thứ tự | **code** | Để thứ hạng giải thích được và không đổi giữa 2 lần chạy |
+
+Điểm tổng = điểm của **dịch vụ khớp nhất** — thực tế bán hàng chỉ cần một dịch vụ
+đủ hợp là đã có lý do tiếp cận. Bằng điểm thì công ty hợp với nhiều dịch vụ hơn
+đứng trước. Công ty chấm lỗi luôn nằm cuối, không lẫn với công ty điểm thấp thật.
+
+Mỗi công ty hiển thị: điểm, dịch vụ khớp nhất kèm lý do, tóm tắt hành động,
+**Signals** (dữ kiện ủng hộ), **Concerns** (điểm trừ, gồm cả "thiếu thông tin"),
+và điểm chi tiết cho từng dịch vụ còn lại.
+
+Hai điều đáng biết:
+
+- **Enrich trước khi match thì điểm sát hơn hẳn.** Công ty chưa enrich được gắn
+  nhãn *"Scored on search results only"*, và prompt yêu cầu model tự hạ trần điểm
+  khi hồ sơ quá mỏng — thà chấm thấp còn hơn tự tin trên không có gì.
+- **Kết quả chụp lại danh sách dịch vụ lúc chạy.** Sửa hoặc xoá dịch vụ trong
+  catalog sau đó không làm sai lệch các bảng xếp hạng cũ.
+
+Cần cấu hình LLM API key ở Settings trước khi dùng.
 
 ### Settings — cấu hình LLM và công cụ search
 
@@ -227,7 +276,7 @@ saletool/
   cli.py                 # CLI: saletool search / saletool web serve|create-user
   crypto.py             # mã hoá API key trước khi lưu DB
   db/
-    base.py               # 4 interface: User/SearchRun/Settings/EnrichJob
+    base.py               # 6 interface: User/SearchRun/Settings/EnrichJob/Service/MatchJob
     sqlite_repo.py          # implementation SQLite (mặc định)
     mongo_repo.py            # implementation MongoDB (sẵn sàng, chưa bật mặc định)
     factory.py                # chọn implementation theo SALETOOL_DB_BACKEND
@@ -237,20 +286,27 @@ saletool/
     fetcher.py               # HTTP -> Playwright fallback, robots.txt, rate limit
     extractor.py              # HTML -> text sạch (trafilatura)
     structured.py              # tầng 0: JSON-LD, meta, mailto/tel, regex
-    llm.py                      # OpenRouter, structured output + validate lại
+    llm.py                      # prompt + schema trích xuất thông tin công ty
     search/                      # SearchProvider: none/searxng/brave/tavily/serper
+  llm_api.py            # lớp gọi LLM dùng chung (json_schema -> json_object fallback)
+  matching/
+    pipeline.py           # dựng hồ sơ công ty, gộp dữ liệu enrich, xếp hạng
+    llm.py                  # prompt chấm điểm + map nhãn dịch vụ về id thật
   api/
     app.py               # FastAPI app: CORS, include routers
     auth.py                # cấp phát/xác minh JWT
-    jobs.py                 # chạy job enrich ở nền, ghi tiến độ xuống DB
+    jobs.py                 # chạy job enrich/matching ở nền, ghi tiến độ xuống DB
     deps.py                 # dependency get_current_user
     routes/
       auth.py                 # /api/auth/login, /api/auth/me, /api/auth/change-password
       search.py                # /api/search, /api/search/runs[/{id}], /api/download/{fmt}
       settings.py               # /api/settings, /api/settings/test
       enrich.py                  # /api/enrich, /api/enrich/jobs[/{id}]
+      catalog.py                  # /api/catalog[/{service_id}]
+      match.py                     # /api/match, /api/match/jobs[/{id}]
 frontend/               # React SPA (Vite) "ABIM Sales Assistant", tiếng Anh
-                         # — Search, Enrichment, History, Settings, Account
+                         # — Search, Enrichment, Catalog, Matching, History,
+                         #   Settings, Account
 docs/
   chay-local.md          # hướng dẫn chạy local (SaleTool + SearXNG) trên Windows
   research/              # khảo sát: các cách lấy dữ liệu công ty trên LinkedIn

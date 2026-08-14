@@ -12,7 +12,9 @@ from pathlib import Path
 from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
     EnrichJobRepository,
+    MatchJobRepository,
     SearchRunRepository,
+    ServiceRepository,
     SettingsRepository,
     UserRepository,
 )
@@ -21,9 +23,13 @@ from saletool.models import (
     CompanyResult,
     EnrichJobDetail,
     EnrichJobSummary,
+    MatchJobDetail,
+    MatchJobSummary,
     SearchCriteria,
     SearchRunDetail,
     SearchRunSummary,
+    Service,
+    ServiceInput,
 )
 
 
@@ -339,5 +345,169 @@ class SQLiteEnrichJobRepository(EnrichJobRepository):
         # Bỏ `results` (nặng) khi chỉ cần liệt kê.
         return [
             EnrichJobSummary.model_validate(EnrichJobDetail.model_validate_json(row[0]).model_dump())
+            for row in rows
+        ]
+
+
+class SQLiteServiceRepository(ServiceRepository):
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._init_db()
+
+    def _init_db(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS services (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    service_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_services_name ON services(name)")
+
+    def list_services(self, include_inactive: bool = True) -> list[Service]:
+        query = "SELECT service_json FROM services"
+        if not include_inactive:
+            query += " WHERE active = 1"
+        query += " ORDER BY name COLLATE NOCASE"
+
+        with sqlite3.connect(self.path) as conn:
+            rows = conn.execute(query).fetchall()
+        return [Service.model_validate_json(row[0]) for row in rows]
+
+    def get_service(self, service_id: str) -> Service | None:
+        with sqlite3.connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT service_json FROM services WHERE id = ?", (service_id,)
+            ).fetchone()
+        return Service.model_validate_json(row[0]) if row else None
+
+    def create_service(self, payload: ServiceInput, updated_by: str) -> Service:
+        now = datetime.now(timezone.utc).isoformat()
+        service = Service(
+            **payload.model_dump(),
+            id=str(uuid.uuid4()),
+            created_at=now,
+            updated_at=now,
+            updated_by=updated_by,
+        )
+
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                INSERT INTO services (id, name, active, created_at, updated_at, service_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    service.id,
+                    service.name,
+                    int(service.active),
+                    service.created_at,
+                    service.updated_at,
+                    service.model_dump_json(),
+                ),
+            )
+        return service
+
+    def update_service(self, service_id: str, payload: ServiceInput, updated_by: str) -> Service:
+        existing = self.get_service(service_id)
+        if not existing:
+            raise ValueError(f"Service '{service_id}' not found.")
+
+        service = Service(
+            **payload.model_dump(),
+            id=existing.id,
+            created_at=existing.created_at,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            updated_by=updated_by,
+        )
+
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                UPDATE services
+                SET name = ?, active = ?, updated_at = ?, service_json = ?
+                WHERE id = ?
+                """,
+                (
+                    service.name,
+                    int(service.active),
+                    service.updated_at,
+                    service.model_dump_json(),
+                    service_id,
+                ),
+            )
+        return service
+
+    def delete_service(self, service_id: str) -> bool:
+        with sqlite3.connect(self.path) as conn:
+            cursor = conn.execute("DELETE FROM services WHERE id = ?", (service_id,))
+        return cursor.rowcount > 0
+
+
+class SQLiteMatchJobRepository(MatchJobRepository):
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._init_db()
+
+    def _init_db(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS match_jobs (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    job_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_match_jobs_username ON match_jobs(username, created_at DESC)"
+            )
+
+    def create_job(self, job: MatchJobDetail) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "INSERT INTO match_jobs (id, username, status, created_at, job_json) VALUES (?, ?, ?, ?, ?)",
+                (job.id, job.username, job.status, job.created_at, job.model_dump_json()),
+            )
+
+    def update_job(self, job: MatchJobDetail) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "UPDATE match_jobs SET status = ?, job_json = ? WHERE id = ? AND username = ?",
+                (job.status, job.model_dump_json(), job.id, job.username),
+            )
+
+    def get_job(self, username: str, job_id: str) -> MatchJobDetail | None:
+        with sqlite3.connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT job_json FROM match_jobs WHERE id = ? AND username = ?",
+                (job_id, username),
+            ).fetchone()
+        return MatchJobDetail.model_validate_json(row[0]) if row else None
+
+    def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
+        with sqlite3.connect(self.path) as conn:
+            rows = conn.execute(
+                """
+                SELECT job_json FROM match_jobs
+                WHERE username = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (username, limit),
+            ).fetchall()
+
+        # Bỏ `results`/`services` (nặng) khi chỉ cần liệt kê.
+        return [
+            MatchJobSummary.model_validate(MatchJobDetail.model_validate_json(row[0]).model_dump())
             for row in rows
         ]

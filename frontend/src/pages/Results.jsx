@@ -1,6 +1,6 @@
 import { Link, Navigate, useLocation } from "react-router-dom";
 import ResultsView from "../components/ResultsView";
-import { useEnrichJob } from "../hooks/useEnrichJob";
+import { useEnrichJob } from "../hooks/useJob";
 
 export default function Results() {
   const location = useLocation();

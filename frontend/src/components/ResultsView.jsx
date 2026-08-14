@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { api, getToken } from "../api/client";
-import { EnrichProgress, EnrichmentResult } from "./EnrichJobView";
-import { useEnrichJob } from "../hooks/useEnrichJob";
+import { EnrichmentResult } from "./EnrichJobView";
+import JobProgress from "./JobProgress";
+import { useEnrichJob } from "../hooks/useJob";
 
 async function downloadFile(fmt, runId) {
   const token = getToken();
@@ -63,7 +64,7 @@ function CompanyEnrichment({ company, autoResult }) {
           {starting ? "Starting…" : "Enrich"}
         </button>
       )}
-      {running && <EnrichProgress job={job} />}
+      {running && <JobProgress job={job} />}
       {error && <p className="error">{error}</p>}
     </div>
   );
@@ -108,7 +109,7 @@ export default function ResultsView({
         {totalCompanies} companies · {totalContacts} contacts
       </p>
 
-      {autoEnrichJob && <EnrichProgress job={autoEnrichJob} />}
+      {autoEnrichJob && <JobProgress job={autoEnrichJob} />}
 
       {companies.length === 0 && <p>No companies matched your criteria.</p>}
 

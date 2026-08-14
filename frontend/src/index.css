@@ -329,3 +329,38 @@ form code {
   word-break: break-all;
 }
 .enrich-results { margin-top: 24px; }
+
+/* ---- Service catalog ---- */
+.section-heading {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin: 32px 0 4px;
+}
+.chip-warn { background: var(--error-bg); color: var(--error-fg); }
+.chip-muted { background: var(--line); color: var(--ink-soft); margin-left: 8px; }
+.link-button.danger { color: var(--error-fg); }
+.company-card .actions { margin-top: 6px; font-size: 13.5px; }
+
+/* ---- Service matching results ---- */
+.rank-number { color: var(--ink-soft); font-weight: 500; margin-right: 4px; }
+.score-badge {
+  display: inline-block;
+  min-width: 34px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.score-strong { background: var(--success-bg); color: var(--success-fg); border: 1px solid var(--success-line); }
+.score-ok { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+.score-weak { background: var(--paper); color: var(--ink-soft); border: 1px solid var(--line); }
+
+.reason-list { margin: 0; padding-left: 18px; }
+.reason-list li { margin: 2px 0; }
+.fit-list { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.fit-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
+.fit-name { font-weight: 600; }

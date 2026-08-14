@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import { EnrichProgress, EnrichmentResult } from "../components/EnrichJobView";
-import { useEnrichJob } from "../hooks/useEnrichJob";
+import { EnrichmentResult } from "../components/EnrichJobView";
+import JobProgress from "../components/JobProgress";
+import { useEnrichJob } from "../hooks/useJob";
 
 /**
  * Parses the free-text box into enrichment targets.
@@ -123,7 +124,7 @@ export default function Enrichment() {
 
       {job && (
         <section className="enrich-results">
-          <EnrichProgress job={job} />
+          <JobProgress job={job} />
           {job.results?.map((result, i) => (
             <EnrichmentResult key={`${result.company_name}-${i}`} result={result} />
           ))}

@@ -113,3 +113,111 @@ def test_get_latest_run(run_repo):
 
 def test_get_latest_run_none_when_no_history(run_repo):
     assert run_repo.get_latest_run("nobody") is None
+
+
+# --- Catalog dịch vụ + job matching -----------------------------------------
+
+
+@pytest.fixture
+def service_repo():
+    from saletool.db.mongo_repo import MongoServiceRepository
+
+    client = mongomock.MongoClient()
+    return MongoServiceRepository(uri="mongodb://unused", db_name="testdb", client=client)
+
+
+@pytest.fixture
+def match_repo():
+    from saletool.db.mongo_repo import MongoMatchJobRepository
+
+    client = mongomock.MongoClient()
+    return MongoMatchJobRepository(uri="mongodb://unused", db_name="testdb", client=client)
+
+
+def _service_input(name="ERP", **overrides):
+    from saletool.models import ServiceInput
+
+    return ServiceInput(name=name, description=f"{name} work", **overrides)
+
+
+def test_create_and_read_service(service_repo):
+    created = service_repo.create_service(_service_input(), updated_by="alice")
+
+    fetched = service_repo.get_service(created.id)
+    assert fetched is not None
+    assert fetched.name == "ERP"
+    assert fetched.updated_by == "alice"
+
+
+def test_list_services_can_hide_inactive(service_repo):
+    service_repo.create_service(_service_input("Active one"), updated_by="alice")
+    service_repo.create_service(_service_input("Retired", active=False), updated_by="alice")
+
+    assert len(service_repo.list_services()) == 2
+    assert [s.name for s in service_repo.list_services(include_inactive=False)] == ["Active one"]
+
+
+def test_update_service_keeps_id_and_created_at(service_repo):
+    created = service_repo.create_service(_service_input(), updated_by="alice")
+
+    updated = service_repo.update_service(created.id, _service_input("Renamed"), updated_by="bob")
+
+    assert updated.id == created.id
+    assert updated.created_at == created.created_at
+    assert updated.name == "Renamed"
+    assert updated.updated_by == "bob"
+    assert service_repo.get_service(created.id).name == "Renamed"
+
+
+def test_update_unknown_service_raises(service_repo):
+    with pytest.raises(ValueError):
+        service_repo.update_service("ghost", _service_input(), updated_by="alice")
+
+
+def test_delete_service_reports_whether_it_existed(service_repo):
+    created = service_repo.create_service(_service_input(), updated_by="alice")
+
+    assert service_repo.delete_service(created.id) is True
+    assert service_repo.delete_service(created.id) is False
+
+
+def _match_job(job_id="job-1", username="alice", **overrides):
+    from saletool.models import MatchJobDetail
+
+    payload = {
+        "id": job_id,
+        "username": username,
+        "status": "pending",
+        "created_at": "2026-08-14T00:00:00+00:00",
+        "run_id": "run-1",
+        "total": 2,
+    }
+    payload.update(overrides)
+    return MatchJobDetail(**payload)
+
+
+def test_match_job_round_trip(match_repo):
+    job = _match_job()
+    match_repo.create_job(job)
+
+    job.status = "completed"
+    job.completed = 2
+    match_repo.update_job(job)
+
+    fetched = match_repo.get_job("alice", "job-1")
+    assert fetched.status == "completed"
+    assert fetched.completed == 2
+    assert fetched.id == "job-1"
+
+
+def test_match_job_is_scoped_to_owner(match_repo):
+    match_repo.create_job(_match_job())
+
+    assert match_repo.get_job("bob", "job-1") is None
+
+
+def test_list_match_jobs_most_recent_first(match_repo):
+    match_repo.create_job(_match_job("old", created_at="2026-08-01T00:00:00+00:00"))
+    match_repo.create_job(_match_job("new", created_at="2026-08-14T00:00:00+00:00"))
+
+    assert [j.id for j in match_repo.list_jobs("alice")] == ["new", "old"]

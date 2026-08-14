@@ -1,32 +1,22 @@
 """Gọi LLM để trích xuất phần KHÔNG parse được bằng code thường.
 
-Dùng API tương thích OpenAI (OpenRouter mặc định) qua httpx — không cần thêm SDK.
-
-Về structured output trên OpenRouter, có một cái bẫy cần biết: hỗ trợ được xác
-định theo **endpoint (provider phục vụ model)**, không phải theo tên model. Cùng
-một model có thể được nhiều provider phục vụ và chỉ một số hỗ trợ json_schema →
-cùng code, cùng model, lúc chạy được lúc không.
-
-Cách xử lý ở đây:
-1. gửi `provider.require_parameters=true` để OpenRouter chỉ route tới provider
-   hỗ trợ đủ tham số;
-2. vẫn **luôn validate lại bằng Pydantic**, vì mức đảm bảo khác nhau giữa các
-   provider (có nơi coi schema chỉ là gợi ý mạnh);
-3. nếu server từ chối json_schema thì tự động thử lại ở chế độ JSON thường.
+Phần plumbing (gọi HTTP, hạ cấp json_schema -> json_object, bóc code fence) nằm
+ở `saletool.llm_api` vì matching cũng cần đúng những thứ đó. Ở đây chỉ còn
+prompt, schema và cách gộp kết quả.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
-import httpx
 from pydantic import BaseModel, ValidationError
 
+from saletool.llm_api import LLMError, request_json
 from saletool.models import Executive, LLMSettings
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["LLMClient", "LLMError", "LLMExtraction"]
 
 _SYSTEM_PROMPT = (
     "You extract structured company information from website text. "
@@ -75,16 +65,6 @@ _JSON_SCHEMA = {
 }
 
 
-class LLMError(RuntimeError):
-    pass
-
-
-def _strip_code_fence(content: str) -> str:
-    """Một số model vẫn bọc JSON trong ```json ... ``` dù đã yêu cầu JSON thuần."""
-    fenced = re.search(r"```(?:json)?\s*(.+?)\s*```", content, re.DOTALL)
-    return fenced.group(1) if fenced else content
-
-
 class LLMClient:
     def __init__(self, settings: LLMSettings):
         if not settings.api_key:
@@ -121,19 +101,7 @@ class LLMClient:
             "provider": {"require_parameters": True},
         }
 
-        content = await self._post(payload)
-
-        if content is None:
-            # Provider từ chối json_schema — hạ xuống JSON mode thường.
-            logger.info("json_schema bị từ chối, thử lại ở JSON mode thường")
-            payload["response_format"] = {"type": "json_object"}
-            payload.pop("provider", None)
-            content = await self._post(payload, raise_on_error=True)
-
-        try:
-            data = json.loads(_strip_code_fence(content or ""))
-        except (ValueError, TypeError) as exc:
-            raise LLMError(f"Model did not return valid JSON: {exc}") from exc
+        data = await request_json(self.settings, payload)
 
         try:
             return LLMExtraction.model_validate(data)
@@ -144,29 +112,3 @@ class LLMClient:
             return LLMExtraction.model_validate(
                 {k: v for k, v in data.items() if k in LLMExtraction.model_fields}
             )
-
-    async def _post(self, payload: dict, raise_on_error: bool = False) -> str | None:
-        url = f"{self.settings.base_url.rstrip('/')}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.settings.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-        except httpx.HTTPError as exc:
-            raise LLMError(f"Could not reach the LLM API: {exc}") from exc
-
-        if resp.status_code == 200:
-            try:
-                return resp.json()["choices"][0]["message"]["content"]
-            except (KeyError, IndexError, ValueError) as exc:
-                raise LLMError(f"Unexpected LLM response shape: {exc}") from exc
-
-        # 400/404 thường là "provider không hỗ trợ tham số này" -> để caller hạ cấp.
-        if resp.status_code in (400, 404) and not raise_on_error:
-            logger.debug("LLM trả %s: %s", resp.status_code, resp.text[:300])
-            return None
-
-        raise LLMError(f"LLM API returned {resp.status_code}: {resp.text[:300]}")

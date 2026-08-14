@@ -54,4 +54,18 @@ export const api = {
   startEnrich: (targets) => request("/api/enrich", { method: "POST", body: { targets } }),
   getEnrichJob: (jobId) => request(`/api/enrich/jobs/${jobId}`),
   listEnrichJobs: () => request("/api/enrich/jobs"),
+
+  listServices: () => request("/api/catalog"),
+  createService: (service) => request("/api/catalog", { method: "POST", body: service }),
+  updateService: (serviceId, service) =>
+    request(`/api/catalog/${serviceId}`, { method: "PUT", body: service }),
+  deleteService: (serviceId) => request(`/api/catalog/${serviceId}`, { method: "DELETE" }),
+
+  startMatch: (runId, serviceIds, objective) =>
+    request("/api/match", {
+      method: "POST",
+      body: { run_id: runId, service_ids: serviceIds, objective: objective || null },
+    }),
+  getMatchJob: (jobId) => request(`/api/match/jobs/${jobId}`),
+  listMatchJobs: () => request("/api/match/jobs"),
 };

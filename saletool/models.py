@@ -267,3 +267,126 @@ class EnrichJobDetail(EnrichJobSummary):
     targets: list[EnrichTarget] = Field(default_factory=list)
     results: list[CompanyEnrichment] = Field(default_factory=list)
 
+
+# ---------------------------------------------------------------------------
+# Catalog dịch vụ của chính công ty bạn
+# ---------------------------------------------------------------------------
+
+
+class ServiceInput(BaseModel):
+    """Phần người dùng nhập/sửa cho 1 dịch vụ trong catalog.
+
+    Tách khỏi `Service` để client không thể tự đặt id/created_at.
+
+    Các trường mô tả ở đây chính là thứ LLM đọc khi chấm độ phù hợp. Mô tả càng
+    cụ thể (bài toán giải quyết, khách hàng điển hình) thì xếp hạng càng sát —
+    chỉ ghi mỗi tên dịch vụ thì LLM gần như không có gì để bám vào.
+    """
+
+    name: str = Field(min_length=1, description="Tên dịch vụ, vd: 'Triển khai ERP'")
+    category: Optional[str] = Field(default=None, description="Nhóm dịch vụ, vd: 'Consulting'")
+    description: str = Field(default="", description="Dịch vụ làm gì, giải quyết vấn đề gì")
+    value_proposition: Optional[str] = Field(
+        default=None, description="Vì sao khách chọn bạn thay vì đối thủ"
+    )
+    target_industries: list[str] = Field(default_factory=list)
+    target_company_size: Optional[str] = Field(
+        default=None, description="Quy mô khách hàng phù hợp, vd: '50-500 nhân sự'"
+    )
+    keywords: list[str] = Field(
+        default_factory=list, description="Tín hiệu cho thấy công ty đang cần dịch vụ này"
+    )
+    active: bool = Field(default=True, description="Tắt để giữ lại trong catalog nhưng không đem đi map")
+
+
+class Service(ServiceInput):
+    """1 dịch vụ đã lưu trong catalog.
+
+    Catalog có phạm vi toàn hệ thống (giống Settings): cả đội bán chung một bộ
+    dịch vụ, không phải mỗi người một bản riêng.
+    """
+
+    id: str
+    created_at: str
+    updated_at: str
+    updated_by: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Mapping dịch vụ <-> công ty (LLM chấm điểm)
+# ---------------------------------------------------------------------------
+
+# Điểm dưới ngưỡng này coi như không đáng theo đuổi — dùng để tô màu ở UI và
+# để lọc nhanh danh sách.
+MATCH_SCORE_FLOOR = 40
+
+
+class ServiceFit(BaseModel):
+    """Mức phù hợp của 1 công ty với 1 dịch vụ cụ thể."""
+
+    service_id: str
+    service_name: str
+    score: int = Field(ge=0, le=100)
+    rationale: str = Field(default="", description="Vì sao chấm điểm này — bám vào dữ kiện có thật")
+
+
+class CompanyMatch(BaseModel):
+    """1 công ty sau khi đã chấm với toàn bộ dịch vụ được chọn."""
+
+    company_name: str
+    domain: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    industry: Optional[str] = None
+    location: Optional[str] = None
+    employee_count: Optional[int] = None
+
+    overall_score: int = Field(default=0, ge=0, le=100)
+    rank: int = 0
+    best_service_id: Optional[str] = None
+    best_service_name: Optional[str] = None
+    summary: str = Field(default="", description="1-2 câu tóm tắt vì sao nên/không nên tiếp cận")
+    signals: list[str] = Field(default_factory=list, description="Dữ kiện ủng hộ")
+    concerns: list[str] = Field(default_factory=list, description="Điểm khiến độ phù hợp giảm")
+
+    service_fits: list[ServiceFit] = Field(default_factory=list)
+
+    used_enrichment: bool = Field(
+        default=False, description="Có dữ liệu enrich để chấm hay chỉ có thông tin từ lần search"
+    )
+    error: Optional[str] = Field(default=None, description="Chấm điểm thất bại thì ghi lý do ở đây")
+
+
+class MatchRequest(BaseModel):
+    """Yêu cầu map: lấy 1 lần search đã lưu + các dịch vụ được chọn."""
+
+    run_id: str = Field(description="ID của lần search trong lịch sử")
+    service_ids: list[str] = Field(min_length=1)
+    objective: Optional[str] = Field(
+        default=None,
+        description="Tiêu chí xếp hạng thêm, vd: 'ưu tiên công ty đang mở rộng ở miền Bắc'",
+    )
+
+
+class MatchJobSummary(BaseModel):
+    id: str
+    username: str
+    status: str
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    run_id: str
+    objective: Optional[str] = None
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    current_target: Optional[str] = None
+    error: Optional[str] = None
+
+
+class MatchJobDetail(MatchJobSummary):
+    services: list[Service] = Field(
+        default_factory=list,
+        description="Bản chụp dịch vụ lúc chạy — sửa catalog sau đó không làm sai lệch kết quả cũ",
+    )
+    results: list[CompanyMatch] = Field(default_factory=list)
+
