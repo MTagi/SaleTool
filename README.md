@@ -83,11 +83,12 @@ là 1 cặp (công ty, liên hệ).
 ## Web UI — "ABIM Sales Assistant" (FastAPI API + React, có đăng nhập)
 
 Giao diện web mang tên **ABIM Sales Assistant**, toàn bộ UI bằng tiếng Anh,
-gồm 7 trang: **Search** (form tìm kiếm), **Enrichment** (bổ sung dữ liệu công
+gồm 8 trang: **Search** (form tìm kiếm), **Enrichment** (bổ sung dữ liệu công
 ty từ website), **Catalog** (danh mục dịch vụ công ty bạn đang bán),
-**Matching** (chấm và xếp hạng công ty theo dịch vụ, dùng LLM), **History**
-(lịch sử tìm kiếm), **Settings** (cấu hình LLM + công cụ search + nguồn
-enrich), **Account** (tài khoản + đổi mật khẩu).
+**Matching** (chấm và xếp hạng công ty theo dịch vụ, dùng LLM), **Messages**
+(sinh message gửi từng contact), **History** (lịch sử tìm kiếm), **Settings**
+(cấu hình LLM + công cụ search + nguồn enrich + hồ sơ người gửi), **Account**
+(tài khoản + đổi mật khẩu).
 
 Kiến trúc: **backend FastAPI** (JSON API thuần, JWT bearer auth) +
 **frontend React** (SPA riêng, thư mục `frontend/`, gọi API qua fetch) +
@@ -119,7 +120,9 @@ tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
 `run_id`), `GET|PUT /api/settings` + `POST /api/settings/test`,
 `POST /api/enrich` + `GET /api/enrich/jobs[/{job_id}]`,
 `GET|POST /api/catalog` + `PUT|DELETE /api/catalog/{service_id}`,
-`POST /api/match` + `GET /api/match/jobs[/{job_id}]`. Xem `saletool/api/routes/`.
+`POST /api/match` + `GET /api/match/jobs[/{job_id}]`,
+`GET /api/messages/options`, `POST /api/messages` + `GET /api/messages/jobs[/{job_id}]`.
+Xem `saletool/api/routes/`.
 
 ### Chạy frontend (React)
 
@@ -217,6 +220,61 @@ Hai điều đáng biết:
 
 Cần cấu hình LLM API key ở Settings trước khi dùng.
 
+### Messages — sinh message gửi cho từng contact
+
+Bước cuối: có contact rồi thì viết gì cho họ. Chọn 1 lần search, tick những
+người muốn viết, chọn kênh + giọng văn + ngôn ngữ, chạy nền.
+
+**Ngữ cảnh lấy từ chính các bước trước** — đó là lý do bước này nằm cuối chuỗi:
+
+| Nguồn | Đóng góp vào message |
+|---|---|
+| Kết quả search | Tên, chức danh, công ty, email/LinkedIn của người nhận |
+| Enrichment | Công ty làm gì, ngành, công nghệ đang dùng |
+| **Matching** | **Dịch vụ khớp nhất + lý do khớp** — chính là câu mở đầu |
+| Settings → Sender profile | Bạn là ai, công ty bạn làm gì, chữ ký |
+
+Không có bước Matching thì vẫn viết được, nhưng message sẽ thiếu lý do cụ thể
+để tiếp cận — trang này nói thẳng điều đó trước khi chạy.
+
+#### Prompt tham khảo Apollo.io
+
+Nguyên tắc lấy từ hướng dẫn công khai của Apollo (bên có số liệu trên hàng
+triệu email thật), đưa thẳng vào prompt:
+
+- **Situational awareness, không phải demographic awareness.** "Tôi thấy anh là
+  CFO ngành sản xuất" là mail-merge. "Công ty anh đang chốt sổ thủ công qua ba
+  nhà máy" mới là lý do người ta trả lời. Prompt bắt câu đầu tiên phải nói về
+  *tình huống* của họ.
+- **6–8 câu** cho email lạnh — khoảng Apollo đo được tỉ lệ trả lời cao nhất.
+- **Một ý, một lời đề nghị.** CTA thứ hai làm giảm tỉ lệ trả lời.
+- **1–2 người/công ty**, không rải cả phòng ban: Apollo đo 1–2 người đạt ~7,8%
+  trả lời, từ 10 người trở lên tụt còn ~3,8%. Trang có sẵn nút *Pick 1/2 per
+  company*, và cảnh báo nếu bạn chọn quá số này.
+- **Không bịa.** Prompt ghi rõ: hồ sơ mỏng thì viết ngắn và thật, đừng viết dài
+  và nghe có vẻ cụ thể.
+
+#### Code kiểm lại, không chỉ tin prompt
+
+Prompt ghi giới hạn ký tự thì model vẫn vượt, và vẫn để sót `[Tên công ty]`.
+Với LinkedIn, vượt giới hạn **không phải lỗi thẩm mỹ — nền tảng từ chối gửi**.
+Nên mọi ràng buộc đo được đều được backend kiểm lại sau khi model trả kết quả:
+
+| Kênh | Giới hạn thật |
+|---|---|
+| Cold email | tiêu đề ≤ 60 ký tự, thân ≤ 125 từ |
+| Follow-up email | tiêu đề ≤ 60 ký tự, thân ≤ 90 từ |
+| LinkedIn connection note | ≤ **300** ký tự (tài khoản free: 200), không có tiêu đề |
+| LinkedIn InMail | tiêu đề ≤ 200, thân ≤ 1900 ký tự |
+
+Ngoài độ dài còn kiểm: placeholder còn sót (`[Name]`, `{{company}}`, `TBD`),
+model tự nói về mình ("as an AI"), không gọi tên người nhận, và trường hợp model
+tự khai là **không** cá nhân hoá được gì. Mọi vấn đề hiện ngay cạnh nội dung —
+code **không tự sửa**, vì cắt ngang một câu còn tệ hơn để người dùng tự sửa.
+
+Hỗ trợ **tiếng Anh và tiếng Việt**. Mỗi message có nút Copy, mở sẵn mail app,
+và link tới profile LinkedIn của người nhận nếu có.
+
 ### Settings — cấu hình LLM và công cụ search
 
 Cấu hình dùng chung cho cả hệ thống (không per-user). **API key được mã hoá
@@ -226,6 +284,9 @@ trước khi lưu và không bao giờ trả về trình duyệt** — UI chỉ 
   structured output; trích xuất từ text đã sạch là việc dễ nên model nhỏ, rẻ là đủ.
 - **Web search**: `none` (mặc định — chỉ đọc website công ty, hoàn toàn free),
   `searxng` (tự host, free, không cần key), `brave` / `tavily` / `serper` (trả phí).
+- **Sender profile**: bạn là ai khi gửi message (tên, chức danh, công ty, mô tả
+  công ty, link đặt lịch, chữ ký). Thiếu tên + công ty thì bước Messages bị chặn —
+  message không có người gửi thì LLM buộc phải bịa ra một người.
 - Nút **Test connection** gọi thật để kiểm tra cấu hình trước khi chạy enrich.
 
 Build production: `npm run build` (ra `frontend/dist/`) — deploy tĩnh sau
@@ -276,7 +337,8 @@ saletool/
   cli.py                 # CLI: saletool search / saletool web serve|create-user
   crypto.py             # mã hoá API key trước khi lưu DB
   db/
-    base.py               # 6 interface: User/SearchRun/Settings/EnrichJob/Service/MatchJob
+    base.py               # 7 interface: User/SearchRun/Settings/EnrichJob/
+                          #   Service/MatchJob/MessageJob
     sqlite_repo.py          # implementation SQLite (mặc định)
     mongo_repo.py            # implementation MongoDB (sẵn sàng, chưa bật mặc định)
     factory.py                # chọn implementation theo SALETOOL_DB_BACKEND
@@ -289,9 +351,13 @@ saletool/
     llm.py                      # prompt + schema trích xuất thông tin công ty
     search/                      # SearchProvider: none/searxng/brave/tavily/serper
   llm_api.py            # lớp gọi LLM dùng chung (json_schema -> json_object fallback)
+  prompt_text.py        # cắt gọn text trước khi đưa vào prompt (dùng chung)
   matching/
     pipeline.py           # dựng hồ sơ công ty, gộp dữ liệu enrich, xếp hạng
     llm.py                  # prompt chấm điểm + map nhãn dịch vụ về id thật
+  messaging/
+    pipeline.py           # dựng brief người gửi/người nhận + KIỂM LẠI kết quả LLM
+    llm.py                  # prompt viết message theo từng kênh gửi
   api/
     app.py               # FastAPI app: CORS, include routers
     auth.py                # cấp phát/xác minh JWT
@@ -304,9 +370,10 @@ saletool/
       enrich.py                  # /api/enrich, /api/enrich/jobs[/{id}]
       catalog.py                  # /api/catalog[/{service_id}]
       match.py                     # /api/match, /api/match/jobs[/{id}]
+      messages.py                   # /api/messages, /api/messages/jobs[/{id}]
 frontend/               # React SPA (Vite) "ABIM Sales Assistant", tiếng Anh
-                         # — Search, Enrichment, Catalog, Matching, History,
-                         #   Settings, Account
+                         # — Search, Enrichment, Catalog, Matching, Messages,
+                         #   History, Settings, Account
 docs/
   chay-local.md          # hướng dẫn chạy local (SaleTool + SearXNG) trên Windows
   research/              # khảo sát: các cách lấy dữ liệu công ty trên LinkedIn

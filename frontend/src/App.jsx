@@ -10,6 +10,7 @@ import HistoryDetail from "./pages/HistoryDetail";
 import Enrichment from "./pages/Enrichment";
 import Catalog from "./pages/Catalog";
 import Matching from "./pages/Matching";
+import Messages from "./pages/Messages";
 import Settings from "./pages/Settings";
 import Account from "./pages/Account";
 
@@ -21,6 +22,7 @@ const PROTECTED_ROUTES = [
   { path: "/enrichment", element: <Enrichment /> },
   { path: "/catalog", element: <Catalog /> },
   { path: "/matching", element: <Matching /> },
+  { path: "/messages", element: <Messages /> },
   { path: "/settings", element: <Settings /> },
   { path: "/account", element: <Account /> },
 ];

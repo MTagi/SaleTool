@@ -19,6 +19,7 @@ from saletool.api.routes import auth as auth_routes
 from saletool.api.routes import catalog as catalog_routes
 from saletool.api.routes import enrich as enrich_routes
 from saletool.api.routes import match as match_routes
+from saletool.api.routes import messages as message_routes
 from saletool.api.routes import search as search_routes
 from saletool.api.routes import settings as settings_routes
 
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
     app.include_router(enrich_routes.router)
     app.include_router(catalog_routes.router)
     app.include_router(match_routes.router)
+    app.include_router(message_routes.router)
 
     @app.get("/api/health")
     def health() -> dict:

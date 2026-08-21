@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: "/enrichment", label: "Enrichment" },
   { to: "/catalog", label: "Catalog" },
   { to: "/matching", label: "Matching" },
+  { to: "/messages", label: "Messages" },
   { to: "/history", label: "History" },
   { to: "/settings", label: "Settings" },
   { to: "/account", label: "Account" },

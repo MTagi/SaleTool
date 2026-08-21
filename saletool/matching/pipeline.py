@@ -27,20 +27,9 @@ from saletool.models import (
     CompanyResult,
     Service,
 )
+from saletool.prompt_text import MAX_LIST_ITEMS, clip_text
 
 logger = logging.getLogger(__name__)
-
-# Giới hạn độ dài các phần tự do trong hồ sơ — hồ sơ dài không làm điểm chính
-# xác hơn, chỉ làm tốn token.
-MAX_DESCRIPTION_CHARS = 800
-MAX_LIST_ITEMS = 12
-
-
-def _clip(text: str | None, limit: int = MAX_DESCRIPTION_CHARS) -> str | None:
-    if not text:
-        return None
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
 def enrichment_key(name: str | None, domain: str | None) -> tuple[str, str]:
@@ -97,13 +86,13 @@ def build_company_profile(
         add("Employees", enrichment.employee_count_text)
 
     if enrichment:
-        add("Description", _clip(enrichment.description))
+        add("Description", clip_text(enrichment.description))
         if enrichment.founded_year:
             add("Founded", str(enrichment.founded_year))
         if enrichment.technologies:
             add("Technologies", ", ".join(enrichment.technologies[:MAX_LIST_ITEMS]))
         if enrichment.addresses:
-            add("Address", _clip(enrichment.addresses[0], 200))
+            add("Address", clip_text(enrichment.addresses[0], 200))
 
     # Chức danh của người liên hệ là tín hiệu mua hàng thật: có CTO nghĩa là có
     # đội kỹ thuật, có Head of Growth nghĩa là đang đẩy tăng trưởng.

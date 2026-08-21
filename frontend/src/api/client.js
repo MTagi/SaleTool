@@ -68,4 +68,9 @@ export const api = {
     }),
   getMatchJob: (jobId) => request(`/api/match/jobs/${jobId}`),
   listMatchJobs: () => request("/api/match/jobs"),
+
+  getMessageOptions: () => request("/api/messages/options"),
+  startMessages: (payload) => request("/api/messages", { method: "POST", body: payload }),
+  getMessageJob: (jobId) => request(`/api/messages/jobs/${jobId}`),
+  listMessageJobs: () => request("/api/messages/jobs"),
 };

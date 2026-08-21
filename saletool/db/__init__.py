@@ -1,6 +1,7 @@
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
+    MessageJobRepository,
     SearchRunRepository,
     ServiceRepository,
     SettingsRepository,
@@ -9,6 +10,7 @@ from saletool.db.base import (
 from saletool.db.factory import (
     get_enrich_job_repository,
     get_match_job_repository,
+    get_message_job_repository,
     get_search_run_repository,
     get_service_repository,
     get_settings_repository,
@@ -22,10 +24,12 @@ __all__ = [
     "EnrichJobRepository",
     "ServiceRepository",
     "MatchJobRepository",
+    "MessageJobRepository",
     "get_user_repository",
     "get_search_run_repository",
     "get_settings_repository",
     "get_enrich_job_repository",
     "get_service_repository",
     "get_match_job_repository",
+    "get_message_job_repository",
 ]

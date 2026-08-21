@@ -16,6 +16,7 @@ from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
+    MessageJobRepository,
     SearchRunRepository,
     ServiceRepository,
     SettingsRepository,
@@ -28,6 +29,8 @@ from saletool.models import (
     EnrichJobSummary,
     MatchJobDetail,
     MatchJobSummary,
+    MessageJobDetail,
+    MessageJobSummary,
     SearchCriteria,
     SearchRunDetail,
     SearchRunSummary,
@@ -315,3 +318,31 @@ class MongoMatchJobRepository(MatchJobRepository):
             .limit(limit)
         )
         return [MatchJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
+
+
+class MongoMessageJobRepository(MessageJobRepository):
+    def __init__(self, uri: str, db_name: str, client: Any = None):
+        self._collection = _connect(client, uri)[db_name]["message_jobs"]
+        self._collection.create_index([("username", 1), ("created_at", -1)])
+
+    def create_job(self, job: MessageJobDetail) -> None:
+        doc = job.model_dump(mode="json")
+        doc["_id"] = doc.pop("id")
+        self._collection.insert_one(doc)
+
+    def update_job(self, job: MessageJobDetail) -> None:
+        doc = job.model_dump(mode="json")
+        doc.pop("id", None)
+        self._collection.update_one({"_id": job.id, "username": job.username}, {"$set": doc})
+
+    def get_job(self, username: str, job_id: str) -> MessageJobDetail | None:
+        doc = self._collection.find_one({"_id": job_id, "username": username})
+        return MessageJobDetail.model_validate({**doc, "id": doc["_id"]}) if doc else None
+
+    def list_jobs(self, username: str, limit: int = 20) -> list[MessageJobSummary]:
+        cursor = (
+            self._collection.find({"username": username}, {"results": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        return [MessageJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]

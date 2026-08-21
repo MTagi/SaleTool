@@ -13,6 +13,7 @@ from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
+    MessageJobRepository,
     SearchRunRepository,
     ServiceRepository,
     SettingsRepository,
@@ -25,6 +26,8 @@ from saletool.models import (
     EnrichJobSummary,
     MatchJobDetail,
     MatchJobSummary,
+    MessageJobDetail,
+    MessageJobSummary,
     SearchCriteria,
     SearchRunDetail,
     SearchRunSummary,
@@ -509,5 +512,72 @@ class SQLiteMatchJobRepository(MatchJobRepository):
         # Bỏ `results`/`services` (nặng) khi chỉ cần liệt kê.
         return [
             MatchJobSummary.model_validate(MatchJobDetail.model_validate_json(row[0]).model_dump())
+            for row in rows
+        ]
+
+
+class SQLiteMessageJobRepository(MessageJobRepository):
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._init_db()
+
+    def _init_db(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS message_jobs (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    job_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_message_jobs_username "
+                "ON message_jobs(username, created_at DESC)"
+            )
+
+    def create_job(self, job: MessageJobDetail) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "INSERT INTO message_jobs (id, username, status, created_at, job_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (job.id, job.username, job.status, job.created_at, job.model_dump_json()),
+            )
+
+    def update_job(self, job: MessageJobDetail) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "UPDATE message_jobs SET status = ?, job_json = ? WHERE id = ? AND username = ?",
+                (job.status, job.model_dump_json(), job.id, job.username),
+            )
+
+    def get_job(self, username: str, job_id: str) -> MessageJobDetail | None:
+        with sqlite3.connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT job_json FROM message_jobs WHERE id = ? AND username = ?",
+                (job_id, username),
+            ).fetchone()
+        return MessageJobDetail.model_validate_json(row[0]) if row else None
+
+    def list_jobs(self, username: str, limit: int = 20) -> list[MessageJobSummary]:
+        with sqlite3.connect(self.path) as conn:
+            rows = conn.execute(
+                """
+                SELECT job_json FROM message_jobs
+                WHERE username = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (username, limit),
+            ).fetchall()
+
+        # Bỏ `results` (nặng) khi chỉ cần liệt kê.
+        return [
+            MessageJobSummary.model_validate(
+                MessageJobDetail.model_validate_json(row[0]).model_dump()
+            )
             for row in rows
         ]

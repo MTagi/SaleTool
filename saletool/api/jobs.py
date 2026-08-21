@@ -20,12 +20,22 @@ from datetime import datetime, timezone
 from saletool.db.factory import (
     get_enrich_job_repository,
     get_match_job_repository,
+    get_message_job_repository,
     get_search_run_repository,
     get_settings_repository,
 )
 from saletool.enrichment import enrich_company
 from saletool.matching import build_enrichment_index, lookup_enrichment, match_company, rank_matches
-from saletool.models import EnrichJobDetail, EnrichTarget, MatchJobDetail, Service
+from saletool.messaging import generate_message
+from saletool.models import (
+    EnrichJobDetail,
+    EnrichTarget,
+    GeneratedMessage,
+    MatchJobDetail,
+    MessageJobDetail,
+    MessageRequest,
+    Service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -213,4 +223,170 @@ async def _run_match_job(job_id: str, username: str) -> None:
 
     logger.info(
         "Job matching %s xong: %d chấm được, %d lỗi", job_id, job.completed, job.failed
+    )
+
+
+# ---------------------------------------------------------------------------
+# Job sinh message gửi contact
+# ---------------------------------------------------------------------------
+
+
+def create_message_job(
+    username: str, request: MessageRequest, notices: list[str] | None = None
+) -> MessageJobDetail:
+    job = MessageJobDetail(
+        id=str(uuid.uuid4()),
+        username=username,
+        status="pending",
+        created_at=_now(),
+        run_id=request.run_id,
+        channel=request.channel,
+        language=request.language,
+        tone=request.tone,
+        total=len(request.targets),
+        notices=notices or [],
+    )
+    get_message_job_repository().create_job(job)
+    _message_requests[job.id] = request
+    return job
+
+
+# Tham số của job (danh sách người nhận, dịch vụ, hướng dẫn thêm) chỉ cần trong
+# lúc chạy nên giữ trong bộ nhớ; bản thân job đã nằm trong DB. Restart server
+# thì job pending mất tham số — cùng đánh đổi với các job nền khác ở đây.
+_message_requests: dict[str, MessageRequest] = {}
+
+
+def start_message_job(job: MessageJobDetail) -> None:
+    _spawn(_run_message_job(job.id, job.username))
+
+
+async def _run_message_job(job_id: str, username: str) -> None:
+    from saletool.db.factory import get_service_repository
+
+    repo = get_message_job_repository()
+    request = _message_requests.pop(job_id, None)
+
+    async with _semaphore:
+        job = repo.get_job(username, job_id)
+        if not job or job.status not in ("pending", "running"):
+            return
+
+        def fail(reason: str) -> None:
+            job.status = "failed"
+            job.error = reason
+            job.finished_at = _now()
+            repo.update_job(job)
+
+        if not request:
+            fail("The job parameters were lost (was the server restarted?). Start it again.")
+            return
+
+        run = get_search_run_repository().get_run(username, job.run_id)
+        if not run:
+            fail("The search run this job refers to no longer exists.")
+            return
+
+        settings = get_settings_repository().get_settings()
+
+        # Ngữ cảnh phụ: enrich (mô tả công ty) và matching (lý do phù hợp).
+        # Thiếu cái nào thì message vẫn viết được, chỉ chung chung hơn.
+        enrichment_index = _collect_enrichments(username)
+        matches: dict[str, object] = {}
+        if request.match_job_id:
+            match_job = get_match_job_repository().get_job(username, request.match_job_id)
+            if match_job:
+                matches = {m.company_name.strip().lower(): m for m in match_job.results}
+
+        forced_service = (
+            get_service_repository().get_service(request.service_id)
+            if request.service_id
+            else None
+        )
+        service_cache: dict[str, object] = {}
+
+        companies = {r.company.name.strip().lower(): r for r in run.results}
+
+        job.status = "running"
+        job.started_at = _now()
+        repo.update_job(job)
+
+        for target in request.targets:
+            job.current_target = f"{target.contact_name} ({target.company_name})"
+            repo.update_job(job)
+
+            result = companies.get(target.company_name.strip().lower())
+            contact = None
+            if result:
+                contact = next(
+                    (
+                        c
+                        for c in result.contacts
+                        if c.full_name.strip().lower() == target.contact_name.strip().lower()
+                    ),
+                    None,
+                )
+
+            if not result or not contact:
+                job.failed += 1
+                job.results.append(
+                    GeneratedMessage(
+                        company_name=target.company_name,
+                        contact_name=target.contact_name,
+                        channel=job.channel,
+                        language=job.language,
+                        tone=job.tone,
+                        error="This contact is not in the selected search run.",
+                    )
+                )
+                repo.update_job(job)
+                continue
+
+            match = matches.get(result.company.name.strip().lower())
+            service = forced_service
+            if service is None and match is not None and match.best_service_id:
+                if match.best_service_id not in service_cache:
+                    service_cache[match.best_service_id] = get_service_repository().get_service(
+                        match.best_service_id
+                    )
+                service = service_cache[match.best_service_id]
+
+            enrichment = lookup_enrichment(
+                enrichment_index, result.company.name, result.company.domain
+            )
+
+            try:
+                message = await generate_message(
+                    company=result.company,
+                    contact=contact,
+                    settings=settings,
+                    channel=job.channel,
+                    language=job.language,
+                    tone=job.tone,
+                    service=service,
+                    enrichment=enrichment,
+                    match=match,
+                    custom_instructions=request.custom_instructions,
+                )
+            except Exception as exc:  # noqa: BLE001 - 1 người lỗi không được làm hỏng cả mẻ
+                logger.exception("Sinh message thất bại cho '%s'", target.contact_name)
+                job.failed += 1
+                job.error = f"{target.contact_name}: {exc}"[:500]
+            else:
+                job.results.append(message)
+                if message.error:
+                    job.failed += 1
+                    job.error = f"{target.contact_name}: {message.error}"[:500]
+                else:
+                    job.completed += 1
+
+            repo.update_job(job)
+
+        job.status = "completed"
+        job.current_target = None
+        job.finished_at = _now()
+        repo.update_job(job)
+
+    logger.info(
+        "Job message %s xong: %d viết được, %d lỗi", job_id, job.completed, job.failed
     )

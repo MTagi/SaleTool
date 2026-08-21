@@ -161,10 +161,34 @@ class EnrichmentSettings(BaseModel):
     )
 
 
+class SenderProfile(BaseModel):
+    """Bạn là ai — dùng khi sinh message gửi cho contact.
+
+    Không có phần này thì LLM buộc phải bịa ra người gửi, và message sinh ra
+    không dùng được. Vì vậy bước sinh message yêu cầu tối thiểu `full_name` và
+    `company_name`.
+    """
+
+    full_name: str = ""
+    title: str = ""
+    company_name: str = ""
+    company_description: str = Field(
+        default="", description="Công ty bạn làm gì — 1-2 câu, LLM dùng để viết phần giới thiệu"
+    )
+    email: str = ""
+    phone: str = ""
+    calendar_link: str = Field(default="", description="Link đặt lịch, vd Calendly — dùng cho CTA")
+    signature: str = Field(default="", description="Chữ ký chèn nguyên văn cuối email")
+
+    def is_usable(self) -> bool:
+        return bool(self.full_name.strip() and self.company_name.strip())
+
+
 class AppSettings(BaseModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     enrichment: EnrichmentSettings = Field(default_factory=EnrichmentSettings)
+    sender: SenderProfile = Field(default_factory=SenderProfile)
     updated_at: Optional[str] = None
     updated_by: Optional[str] = None
 
@@ -389,4 +413,158 @@ class MatchJobDetail(MatchJobSummary):
         description="Bản chụp dịch vụ lúc chạy — sửa catalog sau đó không làm sai lệch kết quả cũ",
     )
     results: list[CompanyMatch] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Sinh message gửi contact
+# ---------------------------------------------------------------------------
+
+
+class ChannelSpec(BaseModel):
+    """Ràng buộc thật của từng kênh gửi.
+
+    Đây **không** phải sở thích viết lách mà là giới hạn của nền tảng và số liệu
+    đã đo được, nên code kiểm tra lại chứ không chỉ ghi vào prompt:
+
+    - Lời mời kết nối LinkedIn cắt cứng ở 300 ký tự (tài khoản free chỉ 200) —
+      viết dài hơn là gửi không được.
+    - InMail: tiêu đề 200, thân 1900 ký tự.
+    - Email lạnh: Apollo đo thấy email 6–8 câu cho tỉ lệ trả lời cao nhất, nên
+      giới hạn ở đây theo số từ chứ không theo ký tự.
+    """
+
+    label: str
+    has_subject: bool
+    max_subject_chars: Optional[int] = None
+    max_body_chars: Optional[int] = None
+    max_body_words: Optional[int] = None
+    soft_body_chars: Optional[int] = Field(
+        default=None, description="Vượt mức này vẫn gửi được nhưng nên cảnh báo"
+    )
+    guidance: str = ""
+
+
+MESSAGE_CHANNELS: dict[str, ChannelSpec] = {
+    "email": ChannelSpec(
+        label="Cold email",
+        has_subject=True,
+        max_subject_chars=60,
+        max_body_words=125,
+        guidance="6-8 sentences. One idea, one ask.",
+    ),
+    "followup_email": ChannelSpec(
+        label="Follow-up email",
+        has_subject=True,
+        max_subject_chars=60,
+        max_body_words=90,
+        guidance="Shorter than the first email. Add something new; never just 'bumping this'.",
+    ),
+    "linkedin_connection": ChannelSpec(
+        label="LinkedIn connection note",
+        has_subject=False,
+        max_body_chars=300,
+        soft_body_chars=200,
+        guidance="No pitch. Give a reason to accept, nothing more.",
+    ),
+    "linkedin_inmail": ChannelSpec(
+        label="LinkedIn InMail",
+        has_subject=True,
+        max_subject_chars=200,
+        max_body_chars=1900,
+        max_body_words=150,
+        guidance="Warmer than email; still one clear ask.",
+    ),
+}
+
+MESSAGE_TONES = ["direct", "friendly", "formal", "consultative"]
+MESSAGE_LANGUAGES = ["en", "vi"]
+
+# Apollo đo: gửi 1-2 người/công ty đạt tỉ lệ trả lời ~7.8%, từ 10 người trở lên
+# tụt còn ~3.8%. Vượt ngưỡng này thì cảnh báo chứ không chặn — đôi khi người
+# dùng có lý do riêng.
+RECOMMENDED_CONTACTS_PER_COMPANY = 2
+
+
+class MessageTarget(BaseModel):
+    """1 người cần viết message.
+
+    Client chỉ gửi tên công ty + tên người; backend tự tra lại trong lần search
+    đã lưu. Làm vậy để client không thể bịa ra contact không có trong dữ liệu.
+    """
+
+    company_name: str
+    contact_name: str
+
+
+class GeneratedMessage(BaseModel):
+    company_name: str
+    contact_name: str
+    contact_title: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_linkedin_url: Optional[str] = None
+
+    channel: str
+    language: str
+    tone: str
+
+    subject: Optional[str] = None
+    body: str = ""
+
+    service_id: Optional[str] = None
+    service_name: Optional[str] = Field(default=None, description="Dịch vụ được chào trong message")
+    personalization_used: list[str] = Field(
+        default_factory=list, description="Dữ kiện LLM khai là đã dùng để cá nhân hoá"
+    )
+
+    subject_chars: int = 0
+    body_chars: int = 0
+    body_words: int = 0
+
+    warnings: list[str] = Field(
+        default_factory=list, description="Vấn đề phát hiện bằng code sau khi LLM trả kết quả"
+    )
+    error: Optional[str] = None
+
+
+class MessageRequest(BaseModel):
+    run_id: str = Field(description="Lần search chứa các contact này")
+    targets: list[MessageTarget] = Field(min_length=1)
+    channel: str = "email"
+    tone: str = "direct"
+    language: str = "en"
+    match_job_id: Optional[str] = Field(
+        default=None,
+        description="Kết quả matching để lấy dịch vụ khớp nhất + lý do — có thì message sát hơn hẳn",
+    )
+    service_id: Optional[str] = Field(
+        default=None, description="Ép chào 1 dịch vụ cụ thể thay vì lấy dịch vụ khớp nhất"
+    )
+    custom_instructions: Optional[str] = Field(
+        default=None, description="Yêu cầu thêm, vd: 'nhắc tới hội thảo tuần trước'"
+    )
+
+
+class MessageJobSummary(BaseModel):
+    id: str
+    username: str
+    status: str
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    run_id: str
+    channel: str
+    language: str
+    tone: str
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    current_target: Optional[str] = None
+    error: Optional[str] = None
+    notices: list[str] = Field(
+        default_factory=list, description="Cảnh báo ở mức cả job, vd: chọn quá nhiều người 1 công ty"
+    )
+
+
+class MessageJobDetail(MessageJobSummary):
+    results: list[GeneratedMessage] = Field(default_factory=list)
 

@@ -58,3 +58,7 @@ export function useEnrichJob(jobId) {
 export function useMatchJob(jobId) {
   return useJob(jobId, api.getMatchJob);
 }
+
+export function useMessageJob(jobId) {
+  return useJob(jobId, api.getMessageJob);
+}

@@ -12,6 +12,7 @@ import os
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
+    MessageJobRepository,
     SearchRunRepository,
     ServiceRepository,
     SettingsRepository,
@@ -129,5 +130,21 @@ def get_match_job_repository() -> MatchJobRepository:
         from saletool.db.mongo_repo import MongoMatchJobRepository
 
         return MongoMatchJobRepository(*_mongo_config())
+
+    raise _unsupported(backend)
+
+
+def get_message_job_repository() -> MessageJobRepository:
+    backend = _backend()
+
+    if backend == "sqlite":
+        from saletool.db.sqlite_repo import SQLiteMessageJobRepository
+
+        return SQLiteMessageJobRepository(_sqlite_path())
+
+    if backend == "mongo":
+        from saletool.db.mongo_repo import MongoMessageJobRepository
+
+        return MongoMessageJobRepository(*_mongo_config())
 
     raise _unsupported(backend)

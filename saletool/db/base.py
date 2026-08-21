@@ -16,6 +16,8 @@ from saletool.models import (
     EnrichJobSummary,
     MatchJobDetail,
     MatchJobSummary,
+    MessageJobDetail,
+    MessageJobSummary,
     SearchCriteria,
     SearchRunDetail,
     SearchRunSummary,
@@ -143,4 +145,24 @@ class MatchJobRepository(ABC):
 
     @abstractmethod
     def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
+        """Các job gần nhất của user, mới nhất trước."""
+
+
+class MessageJobRepository(ABC):
+    """Lưu trạng thái các job sinh message chạy nền."""
+
+    @abstractmethod
+    def create_job(self, job: MessageJobDetail) -> None:
+        """Tạo bản ghi job mới."""
+
+    @abstractmethod
+    def update_job(self, job: MessageJobDetail) -> None:
+        """Ghi đè trạng thái job (dùng để cập nhật tiến độ)."""
+
+    @abstractmethod
+    def get_job(self, username: str, job_id: str) -> MessageJobDetail | None:
+        """Chi tiết 1 job. None nếu không tồn tại hoặc không thuộc user này."""
+
+    @abstractmethod
+    def list_jobs(self, username: str, limit: int = 20) -> list[MessageJobSummary]:
         """Các job gần nhất của user, mới nhất trước."""

@@ -312,6 +312,96 @@ export default function Settings() {
         </fieldset>
 
         <fieldset>
+          <legend>Sender profile</legend>
+          <p className="muted small-note">
+            Who the generated messages come from. Without at least a name and company, message
+            generation is blocked — a message needs a sender, and the model must not invent one.
+          </p>
+
+          <div className="row">
+            <label>
+              Your name
+              <input
+                type="text"
+                value={settings.sender.full_name}
+                onChange={(e) => updateSection("sender", "full_name", e.target.value)}
+                placeholder="Tran Van A"
+              />
+            </label>
+            <label>
+              Your title
+              <input
+                type="text"
+                value={settings.sender.title}
+                onChange={(e) => updateSection("sender", "title", e.target.value)}
+                placeholder="Head of Sales"
+              />
+            </label>
+          </div>
+
+          <label>
+            Your company
+            <input
+              type="text"
+              value={settings.sender.company_name}
+              onChange={(e) => updateSection("sender", "company_name", e.target.value)}
+              placeholder="ABIM"
+            />
+          </label>
+
+          <label>
+            What your company does — one or two sentences
+            <textarea
+              rows={2}
+              value={settings.sender.company_description}
+              onChange={(e) => updateSection("sender", "company_description", e.target.value)}
+              placeholder="We build and run ERP and data platforms for mid-size Vietnamese manufacturers."
+            />
+          </label>
+
+          <div className="row">
+            <label>
+              Reply-to email
+              <input
+                type="text"
+                value={settings.sender.email}
+                onChange={(e) => updateSection("sender", "email", e.target.value)}
+                placeholder="a.tran@abim.vn"
+              />
+            </label>
+            <label>
+              Phone
+              <input
+                type="text"
+                value={settings.sender.phone}
+                onChange={(e) => updateSection("sender", "phone", e.target.value)}
+                placeholder="+84 90 123 4567"
+              />
+            </label>
+          </div>
+
+          <label>
+            Booking link (optional)
+            <input
+              type="text"
+              value={settings.sender.calendar_link}
+              onChange={(e) => updateSection("sender", "calendar_link", e.target.value)}
+              placeholder="https://cal.com/a-tran/15min"
+            />
+          </label>
+
+          <label>
+            Sign-off (optional — inserted verbatim)
+            <textarea
+              rows={2}
+              value={settings.sender.signature}
+              onChange={(e) => updateSection("sender", "signature", e.target.value)}
+              placeholder={"Tran Van A\nHead of Sales, ABIM"}
+            />
+          </label>
+        </fieldset>
+
+        <fieldset>
           <legend>Enrichment sources</legend>
           <p className="muted small-note">
             These run in order, cheapest and most reliable first. Anything found early is not overwritten
