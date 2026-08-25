@@ -137,10 +137,9 @@ class _MetaAndLinkParser(HTMLParser):
                 self.mailto.append(href[7:].split("?")[0].strip())
             elif low.startswith("tel:"):
                 self.tel.append(href[4:].strip())
-            elif low.startswith("http"):
-                if profile := social_profile(href):
-                    key, link = profile
-                    self.social.setdefault(key, link)
+            elif low.startswith("http") and (profile := social_profile(href)):
+                key, link = profile
+                self.social.setdefault(key, link)
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "script" and self._in_jsonld:

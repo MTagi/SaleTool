@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAppStatus } from "../context/StatusContext";
-import { DEFAULT_SENIOR_LEVELS, PROVIDERS, SENIORITY_LEVELS } from "../constants";
+import { PROVIDERS } from "../constants";
 
 /**
  * Shown until the first search exists.
@@ -70,22 +70,30 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { status, refresh: refreshStatus } = useAppStatus();
   const [fields, setFields] = useState(initialFields);
-  const [seniority, setSeniority] = useState(new Set(DEFAULT_SENIOR_LEVELS));
+  const [levels, setLevels] = useState([]);
+  const [seniority, setSeniority] = useState(new Set());
   const [companiesCsv, setCompaniesCsv] = useState(null);
   const [contactsCsv, setContactsCsv] = useState(null);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [autoEnrich, setAutoEnrich] = useState(false);
 
-  // Seed the toggle from the saved default, but let the user override it per search.
+  // The seniority list is a backend convention (saletool/seniority.py), so it
+  // comes from the backend rather than being kept in sync by hand.
   useEffect(() => {
     api
-      .getSettings()
-      .then((data) => setAutoEnrich(Boolean(data.settings.enrichment.auto_enrich_on_search)))
-      .catch(() => {
-        /* Settings are optional here — the toggle just stays off. */
-      });
+      .getSearchOptions()
+      .then((data) => {
+        setLevels(data.seniority_levels);
+        setSeniority(new Set(data.default_senior_levels));
+      })
+      .catch((err) => setError(err.message || "Couldn't load the seniority options."));
   }, []);
+
+  // Seed the toggle from the saved default, but let the user override it per search.
+  useEffect(() => {
+    if (status) setAutoEnrich(Boolean(status.auto_enrich_on_search));
+  }, [status]);
 
   function update(name, value) {
     setFields((f) => ({ ...f, [name]: value }));
@@ -229,7 +237,7 @@ export default function Dashboard() {
           </label>
           <span className="field-label">Seniority levels</span>
           <div className="checkbox-grid">
-            {SENIORITY_LEVELS.map((level) => (
+            {levels.map((level) => (
               <label key={level} className="checkbox">
                 <input
                   type="checkbox"

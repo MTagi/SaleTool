@@ -2,7 +2,11 @@ import httpx
 import pytest
 
 from saletool.models import SearchCriteria
-from saletool.providers.apollo import ORGANIZATION_SEARCH_URL, PEOPLE_SEARCH_URL, ApolloProvider
+from saletool.providers.apollo import (
+    ORGANIZATION_SEARCH_URL,
+    PEOPLE_SEARCH_URL,
+    ApolloProvider,
+)
 
 
 def test_apollo_provider_requires_api_key():

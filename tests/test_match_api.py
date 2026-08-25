@@ -1,6 +1,5 @@
 """Test /api/match — chạy job thật ở nền, chỉ thay lớp gọi LLM bằng bản giả."""
 
-import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,10 +8,9 @@ from saletool.api.app import app
 from saletool.db.sqlite_repo import (
     SQLiteSearchRunRepository,
     SQLiteSettingsRepository,
-    SQLiteUserRepository,
 )
 from saletool.models import AppSettings, Company, CompanyResult, SearchCriteria
-from saletool.security import hash_password
+from tests.conftest import auth, wait_for_job
 
 
 def _scored_response(scores: dict[str, int]):
@@ -33,26 +31,16 @@ def _scored_response(scores: dict[str, int]):
 
 
 @pytest.fixture
-def db_path(tmp_path, monkeypatch):
-    path = tmp_path / "match_test.db"
-    monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
-    monkeypatch.setenv("SALETOOL_DB_PATH", str(path))
-    monkeypatch.setenv("SALETOOL_SECRET_KEY", "f" * 64)
-
-    users = SQLiteUserRepository(path)
-    users.create_user("alice", hash_password("s3cret-pass"))
-    users.create_user("bob", hash_password("another-pass"))
-
+def configured(db_path):
+    """Matching cần LLM key, nếu không route sẽ chặn ngay từ đầu."""
     settings = AppSettings()
     settings.llm.api_key = "sk-or-test"
-    settings.enrichment.use_llm = True
-    SQLiteSettingsRepository(path).save_settings(settings, updated_by="alice")
-
-    return path
+    SQLiteSettingsRepository(db_path).save_settings(settings, updated_by="alice")
+    return db_path
 
 
 @pytest.fixture
-def client(db_path, monkeypatch):
+def client(configured, monkeypatch):
     monkeypatch.setattr(
         "saletool.matching.llm.request_json", _scored_response({"S1": 40, "S2": 85})
     )
@@ -61,10 +49,10 @@ def client(db_path, monkeypatch):
 
 
 @pytest.fixture
-def run_id(db_path):
+def run_id(configured):
     """1 lần search đã lưu, 2 công ty."""
     return (
-        SQLiteSearchRunRepository(db_path)
+        SQLiteSearchRunRepository(configured)
         .save_run(
             username="alice",
             provider="mock",
@@ -78,11 +66,6 @@ def run_id(db_path):
     )
 
 
-def _auth(client, username="alice", password="s3cret-pass") -> dict:
-    resp = client.post("/api/auth/login", json={"username": username, "password": password})
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-
 def _services(client, headers, names=("ERP", "Audit")) -> list[str]:
     return [
         client.post(
@@ -92,16 +75,6 @@ def _services(client, headers, names=("ERP", "Audit")) -> list[str]:
     ]
 
 
-def _wait_for_job(client, headers, job_id, timeout=15.0) -> dict:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        body = client.get(f"/api/match/jobs/{job_id}", headers=headers).json()
-        if body["status"] in ("completed", "failed"):
-            return body
-        time.sleep(0.05)
-    raise AssertionError(f"Job {job_id} did not finish in {timeout}s")
-
-
 def test_match_requires_auth(client, run_id):
     resp = client.post("/api/match", json={"run_id": run_id, "service_ids": ["x"]})
     assert resp.status_code == 401
@@ -109,13 +82,13 @@ def test_match_requires_auth(client, run_id):
 
 def test_rejects_empty_service_selection(client, run_id):
     resp = client.post(
-        "/api/match", headers=_auth(client), json={"run_id": run_id, "service_ids": []}
+        "/api/match", headers=auth(client), json={"run_id": run_id, "service_ids": []}
     )
     assert resp.status_code == 422
 
 
 def test_rejects_unknown_run(client):
-    headers = _auth(client)
+    headers = auth(client)
     resp = client.post(
         "/api/match",
         headers=headers,
@@ -127,7 +100,7 @@ def test_rejects_unknown_run(client):
 def test_rejects_unknown_service(client, run_id):
     resp = client.post(
         "/api/match",
-        headers=_auth(client),
+        headers=auth(client),
         json={"run_id": run_id, "service_ids": ["ghost-service"]},
     )
     assert resp.status_code == 400
@@ -136,7 +109,7 @@ def test_rejects_unknown_service(client, run_id):
 
 def test_rejects_another_users_run(client, run_id):
     """run_id của alice không được map bằng token của bob."""
-    bob = _auth(client, "bob", "another-pass")
+    bob = auth(client, "bob", "another-pass")
     resp = client.post(
         "/api/match",
         headers=bob,
@@ -146,7 +119,7 @@ def test_rejects_another_users_run(client, run_id):
 
 
 def test_returns_a_job_immediately(client, run_id):
-    headers = _auth(client)
+    headers = auth(client)
     resp = client.post(
         "/api/match",
         headers=headers,
@@ -161,14 +134,14 @@ def test_returns_a_job_immediately(client, run_id):
 
 
 def test_job_ranks_every_company_in_the_run(client, run_id):
-    headers = _auth(client)
+    headers = auth(client)
     job_id = client.post(
         "/api/match",
         headers=headers,
         json={"run_id": run_id, "service_ids": _services(client, headers)},
     ).json()["job_id"]
 
-    final = _wait_for_job(client, headers, job_id)
+    final = wait_for_job(client, headers, f"/api/match/jobs/{job_id}")
 
     assert final["status"] == "completed"
     assert final["completed"] == 2
@@ -182,12 +155,12 @@ def test_job_ranks_every_company_in_the_run(client, run_id):
 
 def test_job_snapshots_the_services_it_ran_with(client, run_id):
     """Xoá dịch vụ khỏi catalog không được làm hỏng kết quả đã chạy."""
-    headers = _auth(client)
+    headers = auth(client)
     service_ids = _services(client, headers)
     job_id = client.post(
         "/api/match", headers=headers, json={"run_id": run_id, "service_ids": service_ids}
     ).json()["job_id"]
-    _wait_for_job(client, headers, job_id)
+    wait_for_job(client, headers, f"/api/match/jobs/{job_id}")
 
     for service_id in service_ids:
         client.delete(f"/api/catalog/{service_id}", headers=headers)
@@ -198,7 +171,7 @@ def test_job_snapshots_the_services_it_ran_with(client, run_id):
 
 
 def test_objective_is_stored_on_the_job(client, run_id):
-    headers = _auth(client)
+    headers = auth(client)
     job_id = client.post(
         "/api/match",
         headers=headers,
@@ -214,23 +187,23 @@ def test_objective_is_stored_on_the_job(client, run_id):
 
 
 def test_job_is_scoped_to_its_owner(client, run_id):
-    headers = _auth(client)
+    headers = auth(client)
     job_id = client.post(
         "/api/match",
         headers=headers,
         json={"run_id": run_id, "service_ids": _services(client, headers)},
     ).json()["job_id"]
 
-    bob = _auth(client, "bob", "another-pass")
+    bob = auth(client, "bob", "another-pass")
     assert client.get(f"/api/match/jobs/{job_id}", headers=bob).status_code == 404
 
 
 def test_unknown_job_is_404(client):
-    assert client.get("/api/match/jobs/nope", headers=_auth(client)).status_code == 404
+    assert client.get("/api/match/jobs/nope", headers=auth(client)).status_code == 404
 
 
 def test_jobs_list_shows_history(client, run_id):
-    headers = _auth(client)
+    headers = auth(client)
     client.post(
         "/api/match",
         headers=headers,
@@ -250,14 +223,14 @@ def test_llm_failures_are_counted_not_fatal(client, run_id, monkeypatch):
 
     monkeypatch.setattr("saletool.matching.llm.request_json", always_fails)
 
-    headers = _auth(client)
+    headers = auth(client)
     job_id = client.post(
         "/api/match",
         headers=headers,
         json={"run_id": run_id, "service_ids": _services(client, headers)},
     ).json()["job_id"]
 
-    final = _wait_for_job(client, headers, job_id)
+    final = wait_for_job(client, headers, f"/api/match/jobs/{job_id}")
 
     # Job vẫn phải hoàn tất và trả về đủ công ty, kèm lý do lỗi cho từng cái.
     assert final["status"] == "completed"
@@ -272,7 +245,7 @@ def test_rejects_matching_without_an_llm_key(db_path, run_id, monkeypatch):
     SQLiteSettingsRepository(db_path).save_settings(settings, updated_by="alice")
 
     with TestClient(app) as client:
-        headers = _auth(client)
+        headers = auth(client)
         resp = client.post(
             "/api/match",
             headers=headers,
@@ -283,15 +256,15 @@ def test_rejects_matching_without_an_llm_key(db_path, run_id, monkeypatch):
     assert "LLM API key" in resp.json()["detail"]
 
 
-def test_rejects_a_run_with_no_companies(db_path):
+def test_rejects_a_run_with_no_companies(configured):
     empty_run = (
-        SQLiteSearchRunRepository(db_path)
+        SQLiteSearchRunRepository(configured)
         .save_run(username="alice", provider="mock", criteria=SearchCriteria(), results=[])
         .id
     )
 
     with TestClient(app) as client:
-        headers = _auth(client)
+        headers = auth(client)
         resp = client.post(
             "/api/match",
             headers=headers,

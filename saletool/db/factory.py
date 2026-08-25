@@ -3,11 +3,16 @@
 Mặc định: sqlite. Đổi sang Mongo sau này chỉ cần set
 SALETOOL_DB_BACKEND=mongo (+ SALETOOL_MONGO_URI, SALETOOL_MONGO_DB) mà không
 phải sửa route hay logic auth/search/enrich nào.
+
+Import module implementation được hoãn tới lúc gọi: `mongo_repo` cần pymongo,
+một dependency tuỳ chọn, nên import ở đầu file sẽ làm hỏng cài đặt mặc định.
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from typing import TypeVar
 
 from saletool.db.base import (
     EnrichJobRepository,
@@ -18,6 +23,8 @@ from saletool.db.base import (
     SettingsRepository,
     UserRepository,
 )
+
+T = TypeVar("T")
 
 
 def _backend() -> str:
@@ -34,117 +41,51 @@ def _mongo_config() -> tuple[str, str]:
     return uri, db_name
 
 
-def _unsupported(backend: str) -> ValueError:
-    return ValueError(f"Không hỗ trợ DB backend: '{backend}' (chỉ hỗ trợ 'sqlite' hoặc 'mongo')")
+def _select(sqlite_name: str, mongo_name: str) -> Callable[[], T]:
+    """Dựng repository theo backend đang bật.
+
+    Nhận **tên lớp** chứ không nhận lớp: tên lớp chỉ được tra cứu trong module
+    tương ứng sau khi đã chọn backend, nên `pymongo` không bị import khi chạy
+    SQLite.
+    """
+    backend = _backend()
+
+    if backend == "sqlite":
+        from saletool.db import sqlite_repo
+
+        return getattr(sqlite_repo, sqlite_name)(_sqlite_path())
+
+    if backend == "mongo":
+        from saletool.db import mongo_repo
+
+        return getattr(mongo_repo, mongo_name)(*_mongo_config())
+
+    raise ValueError(f"Không hỗ trợ DB backend: '{backend}' (chỉ hỗ trợ 'sqlite' hoặc 'mongo')")
 
 
 def get_user_repository() -> UserRepository:
-    backend = _backend()
-
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteUserRepository
-
-        return SQLiteUserRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoUserRepository
-
-        return MongoUserRepository(*_mongo_config())
-
-    raise _unsupported(backend)
+    return _select("SQLiteUserRepository", "MongoUserRepository")
 
 
 def get_search_run_repository() -> SearchRunRepository:
-    backend = _backend()
-
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteSearchRunRepository
-
-        return SQLiteSearchRunRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoSearchRunRepository
-
-        return MongoSearchRunRepository(*_mongo_config())
-
-    raise _unsupported(backend)
+    return _select("SQLiteSearchRunRepository", "MongoSearchRunRepository")
 
 
 def get_settings_repository() -> SettingsRepository:
-    backend = _backend()
-
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteSettingsRepository
-
-        return SQLiteSettingsRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoSettingsRepository
-
-        return MongoSettingsRepository(*_mongo_config())
-
-    raise _unsupported(backend)
-
-
-def get_enrich_job_repository() -> EnrichJobRepository:
-    backend = _backend()
-
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteEnrichJobRepository
-
-        return SQLiteEnrichJobRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoEnrichJobRepository
-
-        return MongoEnrichJobRepository(*_mongo_config())
-
-    raise _unsupported(backend)
+    return _select("SQLiteSettingsRepository", "MongoSettingsRepository")
 
 
 def get_service_repository() -> ServiceRepository:
-    backend = _backend()
+    return _select("SQLiteServiceRepository", "MongoServiceRepository")
 
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteServiceRepository
 
-        return SQLiteServiceRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoServiceRepository
-
-        return MongoServiceRepository(*_mongo_config())
-
-    raise _unsupported(backend)
+def get_enrich_job_repository() -> EnrichJobRepository:
+    return _select("SQLiteEnrichJobRepository", "MongoEnrichJobRepository")
 
 
 def get_match_job_repository() -> MatchJobRepository:
-    backend = _backend()
-
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteMatchJobRepository
-
-        return SQLiteMatchJobRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoMatchJobRepository
-
-        return MongoMatchJobRepository(*_mongo_config())
-
-    raise _unsupported(backend)
+    return _select("SQLiteMatchJobRepository", "MongoMatchJobRepository")
 
 
 def get_message_job_repository() -> MessageJobRepository:
-    backend = _backend()
-
-    if backend == "sqlite":
-        from saletool.db.sqlite_repo import SQLiteMessageJobRepository
-
-        return SQLiteMessageJobRepository(_sqlite_path())
-
-    if backend == "mongo":
-        from saletool.db.mongo_repo import MongoMessageJobRepository
-
-        return MongoMessageJobRepository(*_mongo_config())
-
-    raise _unsupported(backend)
+    return _select("SQLiteMessageJobRepository", "MongoMessageJobRepository")

@@ -5,24 +5,13 @@ from saletool.api.app import app
 from saletool.db.sqlite_repo import SQLiteUserRepository
 from saletool.models import MASKED_SECRET
 from saletool.security import hash_password
+from tests.conftest import auth
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    db_path = tmp_path / "settings_test.db"
-    monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
-    monkeypatch.setenv("SALETOOL_DB_PATH", str(db_path))
-    monkeypatch.setenv("SALETOOL_SECRET_KEY", "c" * 64)
-
-    SQLiteUserRepository(db_path).create_user("alice", hash_password("s3cret-pass"))
-
+def client(db_path):
     with TestClient(app) as c:
         yield c
-
-
-def _auth(client) -> dict:
-    resp = client.post("/api/auth/login", json={"username": "alice", "password": "s3cret-pass"})
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
 def _valid_payload(**overrides) -> dict:
@@ -60,7 +49,7 @@ def test_settings_requires_auth(client):
 
 
 def test_defaults_returned_when_never_saved(client):
-    resp = client.get("/api/settings", headers=_auth(client))
+    resp = client.get("/api/settings", headers=auth(client))
 
     assert resp.status_code == 200
     body = resp.json()
@@ -70,7 +59,7 @@ def test_defaults_returned_when_never_saved(client):
 
 
 def test_api_key_is_never_returned_in_clear(client):
-    headers = _auth(client)
+    headers = auth(client)
     client.put("/api/settings", headers=headers, json=_valid_payload())
 
     body = client.get("/api/settings", headers=headers).json()
@@ -87,7 +76,7 @@ def resp_text(payload) -> str:
 
 
 def test_masked_sentinel_keeps_existing_key(client):
-    headers = _auth(client)
+    headers = auth(client)
     client.put("/api/settings", headers=headers, json=_valid_payload())
 
     # Lưu lại mà không sửa key -> key cũ phải được giữ nguyên.
@@ -102,7 +91,7 @@ def test_masked_sentinel_keeps_existing_key(client):
 
 
 def test_resending_the_mask_also_keeps_existing_key(client):
-    headers = _auth(client)
+    headers = auth(client)
     client.put("/api/settings", headers=headers, json=_valid_payload())
 
     payload = _valid_payload()
@@ -116,7 +105,7 @@ def test_rejects_paid_search_provider_without_key(client):
     payload = _valid_payload()
     payload["search"] = {"provider": "brave", "api_key": None, "searxng_url": None, "max_results": 5}
 
-    resp = client.put("/api/settings", headers=_auth(client), json=payload)
+    resp = client.put("/api/settings", headers=auth(client), json=payload)
 
     assert resp.status_code == 400
     assert "API key" in resp.json()["detail"]
@@ -126,7 +115,7 @@ def test_rejects_searxng_without_url(client):
     payload = _valid_payload()
     payload["search"] = {"provider": "searxng", "api_key": None, "searxng_url": None, "max_results": 5}
 
-    resp = client.put("/api/settings", headers=_auth(client), json=payload)
+    resp = client.put("/api/settings", headers=auth(client), json=payload)
 
     assert resp.status_code == 400
     assert "instance URL" in resp.json()["detail"]
@@ -136,7 +125,7 @@ def test_rejects_web_search_enabled_with_no_provider(client):
     payload = _valid_payload()
     payload["enrichment"]["use_web_search"] = True  # search.provider vẫn là "none"
 
-    resp = client.put("/api/settings", headers=_auth(client), json=payload)
+    resp = client.put("/api/settings", headers=auth(client), json=payload)
 
     assert resp.status_code == 400
 
@@ -145,7 +134,7 @@ def test_rejects_llm_enabled_without_key(client):
     payload = _valid_payload()
     payload["llm"]["api_key"] = None
 
-    resp = client.put("/api/settings", headers=_auth(client), json=payload)
+    resp = client.put("/api/settings", headers=auth(client), json=payload)
 
     assert resp.status_code == 400
 
@@ -154,12 +143,12 @@ def test_rejects_unknown_search_provider(client):
     payload = _valid_payload()
     payload["search"] = {"provider": "hax0r", "api_key": "k", "searxng_url": None, "max_results": 5}
 
-    resp = client.put("/api/settings", headers=_auth(client), json=payload)
+    resp = client.put("/api/settings", headers=auth(client), json=payload)
     assert resp.status_code == 400
 
 
 def test_settings_persist_across_requests(client):
-    headers = _auth(client)
+    headers = auth(client)
     payload = _valid_payload()
     payload["enrichment"]["max_pages_per_company"] = 3
     client.put("/api/settings", headers=headers, json=payload)
@@ -184,7 +173,7 @@ def test_saving_a_key_without_secret_key_returns_a_clear_error(tmp_path, monkeyp
     SQLiteUserRepository(db_path).create_user("alice", hash_password("s3cret-pass"))
 
     with TestClient(app) as client:
-        headers = _auth(client)
+        headers = auth(client)
         resp = client.put("/api/settings", headers=headers, json=_valid_payload())
 
     assert resp.status_code == 503

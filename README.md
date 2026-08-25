@@ -134,6 +134,7 @@ tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
 `run_id`), `GET|PUT /api/settings` + `POST /api/settings/test`,
 `POST /api/enrich` + `GET /api/enrich/jobs[/{job_id}]`,
 `GET|POST /api/catalog` + `PUT|DELETE /api/catalog/{service_id}`,
+`GET /api/search/options` (danh sách seniority — frontend không giữ bản chép),
 `GET /api/status` (trạng thái cấu hình + số liệu, dùng cho thanh 5 bước),
 `POST /api/match` + `GET /api/match/jobs[/{job_id}]`,
 `GET /api/messages/options`, `POST /api/messages` + `GET /api/messages/jobs[/{job_id}]`.
@@ -327,6 +328,18 @@ chỉ cần viết thêm 1 implementation mới theo các interface này.
 Chưa có: giới hạn số lần đăng nhập sai, refresh token/thu hồi token, khôi phục
 mật khẩu — cần bổ sung thêm nếu triển khai ra ngoài internet công khai.
 
+## Lint
+
+```bash
+ruff check .          # cấu hình trong pyproject.toml
+ruff check . --fix
+```
+
+Rule `BLE` (bắt Exception quá rộng) được bật có chủ đích: code có vài chỗ bắt
+rộng **cố ý** — 1 công ty lỗi không được làm hỏng cả job — và đánh dấu
+`# noqa: BLE001` kèm lý do. Bật rule thì những dòng đó có nghĩa, và chỗ bắt rộng
+*không* chủ đích sẽ bị chặn.
+
 ## Test
 
 ```bash
@@ -352,8 +365,8 @@ saletool/
   cli.py                 # CLI: saletool search / saletool web serve|create-user
   crypto.py             # mã hoá API key trước khi lưu DB
   db/
-    base.py               # 7 interface: User/SearchRun/Settings/EnrichJob/
-                          #   Service/MatchJob/MessageJob
+    base.py               # 5 interface + 1 JobRepository generic dùng chung cho
+                          #   enrich/matching/message (3 loại job cùng vòng đời)
     sqlite_repo.py          # implementation SQLite (mặc định)
     mongo_repo.py            # implementation MongoDB (sẵn sàng, chưa bật mặc định)
     factory.py                # chọn implementation theo SALETOOL_DB_BACKEND

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 # Các mức seniority thường gặp (khớp với cách Apollo.io/PDL phân loại),
@@ -35,8 +33,8 @@ class SearchCriteria(BaseModel):
     industries: list[str] = Field(default_factory=list, description="Ngành nghề, vd: 'Software', 'Retail'")
     keywords: list[str] = Field(default_factory=list, description="Từ khoá mô tả công ty/lĩnh vực kinh doanh")
     locations: list[str] = Field(default_factory=list, description="Vị trí địa lý, vd: 'Vietnam', 'Ho Chi Minh City'")
-    company_size_min: Optional[int] = Field(default=None, ge=0)
-    company_size_max: Optional[int] = Field(default=None, ge=0)
+    company_size_min: int | None = Field(default=None, ge=0)
+    company_size_max: int | None = Field(default=None, ge=0)
     target_titles: list[str] = Field(
         default_factory=list, description="Chức danh cụ thể muốn tìm, vd: 'CEO', 'Head of Sales'"
     )
@@ -50,21 +48,21 @@ class SearchCriteria(BaseModel):
 
 class Company(BaseModel):
     name: str
-    linkedin_url: Optional[str] = None
-    domain: Optional[str] = None
-    industry: Optional[str] = None
-    location: Optional[str] = None
-    employee_count: Optional[int] = None
-    provider_id: Optional[str] = Field(default=None, description="ID nội bộ của nhà cung cấp dữ liệu")
+    linkedin_url: str | None = None
+    domain: str | None = None
+    industry: str | None = None
+    location: str | None = None
+    employee_count: int | None = None
+    provider_id: str | None = Field(default=None, description="ID nội bộ của nhà cung cấp dữ liệu")
 
 
 class Contact(BaseModel):
     full_name: str
-    title: Optional[str] = None
-    seniority: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    email: Optional[str] = None
-    company_name: Optional[str] = None
+    title: str | None = None
+    seniority: str | None = None
+    linkedin_url: str | None = None
+    email: str | None = None
+    company_name: str | None = None
 
 
 class CompanyResult(BaseModel):
@@ -115,7 +113,7 @@ Khi lưu, nếu nhận lại đúng sentinel này thì giữ nguyên key cũ."""
 class LLMSettings(BaseModel):
     enabled: bool = True
     provider: str = "openrouter"
-    api_key: Optional[str] = None
+    api_key: str | None = None
     base_url: str = "https://openrouter.ai/api/v1"
     model: str = "google/gemini-2.0-flash-001"
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
@@ -124,8 +122,8 @@ class LLMSettings(BaseModel):
 
 class SearchSettings(BaseModel):
     provider: str = "none"
-    api_key: Optional[str] = None
-    searxng_url: Optional[str] = Field(
+    api_key: str | None = None
+    searxng_url: str | None = Field(
         default=None, description="URL instance SearXNG tự host, vd: http://localhost:8080"
     )
     max_results: int = Field(default=5, gt=0, le=50)
@@ -189,8 +187,8 @@ class AppSettings(BaseModel):
     search: SearchSettings = Field(default_factory=SearchSettings)
     enrichment: EnrichmentSettings = Field(default_factory=EnrichmentSettings)
     sender: SenderProfile = Field(default_factory=SenderProfile)
-    updated_at: Optional[str] = None
-    updated_by: Optional[str] = None
+    updated_at: str | None = None
+    updated_by: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -210,29 +208,29 @@ class EnrichmentSource(BaseModel):
     fetch_method: str = Field(description="http | browser")
     extractor: str = Field(description="json_ld | meta | regex | llm")
     ok: bool = True
-    note: Optional[str] = None
+    note: str | None = None
 
 
 class Executive(BaseModel):
     full_name: str
-    title: Optional[str] = None
-    seniority: Optional[str] = None
-    email: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    source_url: Optional[str] = None
+    title: str | None = None
+    seniority: str | None = None
+    email: str | None = None
+    linkedin_url: str | None = None
+    source_url: str | None = None
 
 
 class CompanyEnrichment(BaseModel):
     """Thông tin thu được sau khi enrich 1 công ty."""
 
     company_name: str
-    domain: Optional[str] = None
+    domain: str | None = None
 
-    description: Optional[str] = None
-    industry: Optional[str] = None
-    founded_year: Optional[int] = None
-    headquarters: Optional[str] = None
-    employee_count_text: Optional[str] = None
+    description: str | None = None
+    industry: str | None = None
+    founded_year: int | None = None
+    headquarters: str | None = None
+    employee_count_text: str | None = None
 
     emails: list[str] = Field(default_factory=list)
     phones: list[str] = Field(default_factory=list)
@@ -241,12 +239,12 @@ class CompanyEnrichment(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     executives: list[Executive] = Field(default_factory=list)
 
-    tax_code: Optional[str] = Field(default=None, description="Mã số thuế / mã số doanh nghiệp")
+    tax_code: str | None = Field(default=None, description="Mã số thuế / mã số doanh nghiệp")
 
     sources: list[EnrichmentSource] = Field(default_factory=list)
     pages_fetched: int = 0
     llm_calls: int = 0
-    enriched_at: Optional[str] = None
+    enriched_at: str | None = None
 
     def is_empty(self) -> bool:
         """True khi không thu được thông tin gì đáng kể — dùng để hiện nút Enrich lại."""
@@ -267,8 +265,8 @@ class EnrichTarget(BaseModel):
     """1 công ty cần enrich. Ít nhất phải có tên hoặc domain."""
 
     company_name: str
-    domain: Optional[str] = None
-    extra_context: Optional[str] = Field(
+    domain: str | None = None
+    extra_context: str | None = Field(
         default=None, description="Gợi ý thêm cho LLM/search, vd: 'fintech ở TP.HCM'"
     )
 
@@ -278,13 +276,13 @@ class EnrichJobSummary(BaseModel):
     username: str
     status: str
     created_at: str
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
+    started_at: str | None = None
+    finished_at: str | None = None
     total: int = 0
     completed: int = 0
     failed: int = 0
-    current_target: Optional[str] = None
-    error: Optional[str] = None
+    current_target: str | None = None
+    error: str | None = None
 
 
 class EnrichJobDetail(EnrichJobSummary):
@@ -308,13 +306,13 @@ class ServiceInput(BaseModel):
     """
 
     name: str = Field(min_length=1, description="Tên dịch vụ, vd: 'Triển khai ERP'")
-    category: Optional[str] = Field(default=None, description="Nhóm dịch vụ, vd: 'Consulting'")
+    category: str | None = Field(default=None, description="Nhóm dịch vụ, vd: 'Consulting'")
     description: str = Field(default="", description="Dịch vụ làm gì, giải quyết vấn đề gì")
-    value_proposition: Optional[str] = Field(
+    value_proposition: str | None = Field(
         default=None, description="Vì sao khách chọn bạn thay vì đối thủ"
     )
     target_industries: list[str] = Field(default_factory=list)
-    target_company_size: Optional[str] = Field(
+    target_company_size: str | None = Field(
         default=None, description="Quy mô khách hàng phù hợp, vd: '50-500 nhân sự'"
     )
     keywords: list[str] = Field(
@@ -333,7 +331,7 @@ class Service(ServiceInput):
     id: str
     created_at: str
     updated_at: str
-    updated_by: Optional[str] = None
+    updated_by: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -358,16 +356,16 @@ class CompanyMatch(BaseModel):
     """1 công ty sau khi đã chấm với toàn bộ dịch vụ được chọn."""
 
     company_name: str
-    domain: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    industry: Optional[str] = None
-    location: Optional[str] = None
-    employee_count: Optional[int] = None
+    domain: str | None = None
+    linkedin_url: str | None = None
+    industry: str | None = None
+    location: str | None = None
+    employee_count: int | None = None
 
     overall_score: int = Field(default=0, ge=0, le=100)
     rank: int = 0
-    best_service_id: Optional[str] = None
-    best_service_name: Optional[str] = None
+    best_service_id: str | None = None
+    best_service_name: str | None = None
     summary: str = Field(default="", description="1-2 câu tóm tắt vì sao nên/không nên tiếp cận")
     signals: list[str] = Field(default_factory=list, description="Dữ kiện ủng hộ")
     concerns: list[str] = Field(default_factory=list, description="Điểm khiến độ phù hợp giảm")
@@ -377,7 +375,7 @@ class CompanyMatch(BaseModel):
     used_enrichment: bool = Field(
         default=False, description="Có dữ liệu enrich để chấm hay chỉ có thông tin từ lần search"
     )
-    error: Optional[str] = Field(default=None, description="Chấm điểm thất bại thì ghi lý do ở đây")
+    error: str | None = Field(default=None, description="Chấm điểm thất bại thì ghi lý do ở đây")
 
 
 class MatchRequest(BaseModel):
@@ -385,7 +383,7 @@ class MatchRequest(BaseModel):
 
     run_id: str = Field(description="ID của lần search trong lịch sử")
     service_ids: list[str] = Field(min_length=1)
-    objective: Optional[str] = Field(
+    objective: str | None = Field(
         default=None,
         description="Tiêu chí xếp hạng thêm, vd: 'ưu tiên công ty đang mở rộng ở miền Bắc'",
     )
@@ -396,15 +394,15 @@ class MatchJobSummary(BaseModel):
     username: str
     status: str
     created_at: str
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
+    started_at: str | None = None
+    finished_at: str | None = None
     run_id: str
-    objective: Optional[str] = None
+    objective: str | None = None
     total: int = 0
     completed: int = 0
     failed: int = 0
-    current_target: Optional[str] = None
-    error: Optional[str] = None
+    current_target: str | None = None
+    error: str | None = None
 
 
 class MatchJobDetail(MatchJobSummary):
@@ -435,10 +433,10 @@ class ChannelSpec(BaseModel):
 
     label: str
     has_subject: bool
-    max_subject_chars: Optional[int] = None
-    max_body_chars: Optional[int] = None
-    max_body_words: Optional[int] = None
-    soft_body_chars: Optional[int] = Field(
+    max_subject_chars: int | None = None
+    max_body_chars: int | None = None
+    max_body_words: int | None = None
+    soft_body_chars: int | None = Field(
         default=None, description="Vượt mức này vẫn gửi được nhưng nên cảnh báo"
     )
     guidance: str = ""
@@ -499,19 +497,19 @@ class MessageTarget(BaseModel):
 class GeneratedMessage(BaseModel):
     company_name: str
     contact_name: str
-    contact_title: Optional[str] = None
-    contact_email: Optional[str] = None
-    contact_linkedin_url: Optional[str] = None
+    contact_title: str | None = None
+    contact_email: str | None = None
+    contact_linkedin_url: str | None = None
 
     channel: str
     language: str
     tone: str
 
-    subject: Optional[str] = None
+    subject: str | None = None
     body: str = ""
 
-    service_id: Optional[str] = None
-    service_name: Optional[str] = Field(default=None, description="Dịch vụ được chào trong message")
+    service_id: str | None = None
+    service_name: str | None = Field(default=None, description="Dịch vụ được chào trong message")
     personalization_used: list[str] = Field(
         default_factory=list, description="Dữ kiện LLM khai là đã dùng để cá nhân hoá"
     )
@@ -523,7 +521,7 @@ class GeneratedMessage(BaseModel):
     warnings: list[str] = Field(
         default_factory=list, description="Vấn đề phát hiện bằng code sau khi LLM trả kết quả"
     )
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class MessageRequest(BaseModel):
@@ -532,14 +530,14 @@ class MessageRequest(BaseModel):
     channel: str = "email"
     tone: str = "direct"
     language: str = "en"
-    match_job_id: Optional[str] = Field(
+    match_job_id: str | None = Field(
         default=None,
         description="Kết quả matching để lấy dịch vụ khớp nhất + lý do — có thì message sát hơn hẳn",
     )
-    service_id: Optional[str] = Field(
+    service_id: str | None = Field(
         default=None, description="Ép chào 1 dịch vụ cụ thể thay vì lấy dịch vụ khớp nhất"
     )
-    custom_instructions: Optional[str] = Field(
+    custom_instructions: str | None = Field(
         default=None, description="Yêu cầu thêm, vd: 'nhắc tới hội thảo tuần trước'"
     )
 
@@ -549,8 +547,8 @@ class MessageJobSummary(BaseModel):
     username: str
     status: str
     created_at: str
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
+    started_at: str | None = None
+    finished_at: str | None = None
     run_id: str
     channel: str
     language: str
@@ -558,8 +556,8 @@ class MessageJobSummary(BaseModel):
     total: int = 0
     completed: int = 0
     failed: int = 0
-    current_target: Optional[str] = None
-    error: Optional[str] = None
+    current_target: str | None = None
+    error: str | None = None
     notices: list[str] = Field(
         default_factory=list, description="Cảnh báo ở mức cả job, vd: chọn quá nhiều người 1 công ty"
     )

@@ -45,6 +45,7 @@ export const api = {
     }),
   search: (formData) => request("/api/search", { method: "POST", body: formData, isForm: true }),
   listRuns: () => request("/api/search/runs"),
+  getSearchOptions: () => request("/api/search/options"),
   getRun: (runId) => request(`/api/search/runs/${runId}`),
 
   getSettings: () => request("/api/settings"),
@@ -53,7 +54,6 @@ export const api = {
 
   startEnrich: (targets) => request("/api/enrich", { method: "POST", body: { targets } }),
   getEnrichJob: (jobId) => request(`/api/enrich/jobs/${jobId}`),
-  listEnrichJobs: () => request("/api/enrich/jobs"),
 
   listServices: () => request("/api/catalog"),
   createService: (service) => request("/api/catalog", { method: "POST", body: service }),
@@ -74,5 +74,4 @@ export const api = {
   getMessageOptions: () => request("/api/messages/options"),
   startMessages: (payload) => request("/api/messages", { method: "POST", body: payload }),
   getMessageJob: (jobId) => request(`/api/messages/jobs/${jobId}`),
-  listMessageJobs: () => request("/api/messages/jobs"),
 };

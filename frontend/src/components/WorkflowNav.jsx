@@ -9,7 +9,7 @@ import { Link, useLocation } from "react-router-dom";
  * or that messages read from a matching run. This strip is the answer: it shows
  * the sequence and marks each step done as soon as there is data behind it.
  */
-export function workflowSteps(status) {
+function workflowSteps(status) {
   const counts = status?.counts;
   return [
     {

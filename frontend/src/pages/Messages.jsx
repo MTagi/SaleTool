@@ -7,20 +7,9 @@ import Prerequisites, { allMet } from "../components/Prerequisites";
 import { copyText } from "../lib/clipboard";
 import { useAppStatus } from "../context/StatusContext";
 import { useMessageJob } from "../hooks/useJob";
+import { formatRun } from "../lib/format";
 
 const LANGUAGE_LABELS = { en: "English", vi: "Tiếng Việt" };
-
-function formatRun(run) {
-  const criteria = [
-    run.criteria.keywords?.join(", "),
-    run.criteria.industries?.join(", "),
-    run.criteria.locations?.join(", "),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const when = new Date(run.created_at).toLocaleString();
-  return `${criteria || "(no criteria)"} — ${run.total_contacts} contacts — ${when}`;
-}
 
 export default function Messages() {
   const [searchParams] = useSearchParams();
@@ -227,7 +216,7 @@ export default function Messages() {
               {runs?.length === 0 && <option value="">No searches yet</option>}
               {runs?.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {formatRun(r)}
+                  {formatRun(r, "contacts")}
                 </option>
               ))}
             </select>

@@ -1,22 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-
-function formatCriteria(criteria) {
-  const parts = [];
-  if (criteria.keywords?.length) parts.push(criteria.keywords.join(", "));
-  if (criteria.industries?.length) parts.push(criteria.industries.join(", "));
-  if (criteria.locations?.length) parts.push(criteria.locations.join(", "));
-  return parts.length ? parts.join(" · ") : "(no criteria)";
-}
-
-function formatDate(iso) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
+import { formatCriteria, formatDate } from "../lib/format";
 
 export default function History() {
   const [runs, setRuns] = useState(null);

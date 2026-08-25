@@ -21,7 +21,7 @@ def run_search(criteria: SearchCriteria, provider: CompanyContactProvider) -> li
     for company in companies:
         try:
             contacts = provider.search_contacts(company, criteria)
-        except Exception:  # noqa: BLE001 - không để 1 công ty lỗi làm hỏng cả batch
+        except Exception:
             logger.exception("Lỗi khi lấy liên hệ cho công ty '%s', bỏ qua.", company.name)
             contacts = []
         results.append(CompanyResult(company=company, contacts=contacts))

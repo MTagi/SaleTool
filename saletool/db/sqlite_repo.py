@@ -289,69 +289,6 @@ class SQLiteSettingsRepository(SettingsRepository):
         return saved
 
 
-class SQLiteEnrichJobRepository(EnrichJobRepository):
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        self._init_db()
-
-    def _init_db(self) -> None:
-        with sqlite3.connect(self.path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS enrich_jobs (
-                    id TEXT PRIMARY KEY,
-                    username TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    job_json TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_enrich_jobs_username ON enrich_jobs(username, created_at DESC)"
-            )
-
-    def create_job(self, job: EnrichJobDetail) -> None:
-        with sqlite3.connect(self.path) as conn:
-            conn.execute(
-                "INSERT INTO enrich_jobs (id, username, status, created_at, job_json) VALUES (?, ?, ?, ?, ?)",
-                (job.id, job.username, job.status, job.created_at, job.model_dump_json()),
-            )
-
-    def update_job(self, job: EnrichJobDetail) -> None:
-        with sqlite3.connect(self.path) as conn:
-            conn.execute(
-                "UPDATE enrich_jobs SET status = ?, job_json = ? WHERE id = ? AND username = ?",
-                (job.status, job.model_dump_json(), job.id, job.username),
-            )
-
-    def get_job(self, username: str, job_id: str) -> EnrichJobDetail | None:
-        with sqlite3.connect(self.path) as conn:
-            row = conn.execute(
-                "SELECT job_json FROM enrich_jobs WHERE id = ? AND username = ?",
-                (job_id, username),
-            ).fetchone()
-        return EnrichJobDetail.model_validate_json(row[0]) if row else None
-
-    def list_jobs(self, username: str, limit: int = 20) -> list[EnrichJobSummary]:
-        with sqlite3.connect(self.path) as conn:
-            rows = conn.execute(
-                """
-                SELECT job_json FROM enrich_jobs
-                WHERE username = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (username, limit),
-            ).fetchall()
-
-        # Bỏ `results` (nặng) khi chỉ cần liệt kê.
-        return [
-            EnrichJobSummary.model_validate(EnrichJobDetail.model_validate_json(row[0]).model_dump())
-            for row in rows
-        ]
-
-
 class SQLiteServiceRepository(ServiceRepository):
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -453,7 +390,18 @@ class SQLiteServiceRepository(ServiceRepository):
         return cursor.rowcount > 0
 
 
-class SQLiteMatchJobRepository(MatchJobRepository):
+class _SQLiteJobRepository:
+    """Phần thân dùng chung cho cả ba loại job.
+
+    Ba bảng job chỉ khác nhau ở tên bảng và kiểu dữ liệu; toàn bộ JSON của job
+    nằm trong một cột nên câu lệnh SQL giống hệt nhau. Lớp con chỉ khai báo
+    `_table` và hai model.
+    """
+
+    _table: str
+    _detail_model: type
+    _summary_model: type
+
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._init_db()
@@ -461,8 +409,8 @@ class SQLiteMatchJobRepository(MatchJobRepository):
     def _init_db(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS match_jobs (
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._table} (
                     id TEXT PRIMARY KEY,
                     username TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -472,101 +420,38 @@ class SQLiteMatchJobRepository(MatchJobRepository):
                 """
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_match_jobs_username ON match_jobs(username, created_at DESC)"
+                f"CREATE INDEX IF NOT EXISTS idx_{self._table}_username "
+                f"ON {self._table}(username, created_at DESC)"
             )
 
-    def create_job(self, job: MatchJobDetail) -> None:
+    def create_job(self, job) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute(
-                "INSERT INTO match_jobs (id, username, status, created_at, job_json) VALUES (?, ?, ?, ?, ?)",
-                (job.id, job.username, job.status, job.created_at, job.model_dump_json()),
-            )
-
-    def update_job(self, job: MatchJobDetail) -> None:
-        with sqlite3.connect(self.path) as conn:
-            conn.execute(
-                "UPDATE match_jobs SET status = ?, job_json = ? WHERE id = ? AND username = ?",
-                (job.status, job.model_dump_json(), job.id, job.username),
-            )
-
-    def get_job(self, username: str, job_id: str) -> MatchJobDetail | None:
-        with sqlite3.connect(self.path) as conn:
-            row = conn.execute(
-                "SELECT job_json FROM match_jobs WHERE id = ? AND username = ?",
-                (job_id, username),
-            ).fetchone()
-        return MatchJobDetail.model_validate_json(row[0]) if row else None
-
-    def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
-        with sqlite3.connect(self.path) as conn:
-            rows = conn.execute(
-                """
-                SELECT job_json FROM match_jobs
-                WHERE username = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (username, limit),
-            ).fetchall()
-
-        # Bỏ `results`/`services` (nặng) khi chỉ cần liệt kê.
-        return [
-            MatchJobSummary.model_validate(MatchJobDetail.model_validate_json(row[0]).model_dump())
-            for row in rows
-        ]
-
-
-class SQLiteMessageJobRepository(MessageJobRepository):
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        self._init_db()
-
-    def _init_db(self) -> None:
-        with sqlite3.connect(self.path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS message_jobs (
-                    id TEXT PRIMARY KEY,
-                    username TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    job_json TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_message_jobs_username "
-                "ON message_jobs(username, created_at DESC)"
-            )
-
-    def create_job(self, job: MessageJobDetail) -> None:
-        with sqlite3.connect(self.path) as conn:
-            conn.execute(
-                "INSERT INTO message_jobs (id, username, status, created_at, job_json) "
+                f"INSERT INTO {self._table} (id, username, status, created_at, job_json) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (job.id, job.username, job.status, job.created_at, job.model_dump_json()),
             )
 
-    def update_job(self, job: MessageJobDetail) -> None:
+    def update_job(self, job) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute(
-                "UPDATE message_jobs SET status = ?, job_json = ? WHERE id = ? AND username = ?",
+                f"UPDATE {self._table} SET status = ?, job_json = ? WHERE id = ? AND username = ?",
                 (job.status, job.model_dump_json(), job.id, job.username),
             )
 
-    def get_job(self, username: str, job_id: str) -> MessageJobDetail | None:
+    def get_job(self, username: str, job_id: str):
         with sqlite3.connect(self.path) as conn:
             row = conn.execute(
-                "SELECT job_json FROM message_jobs WHERE id = ? AND username = ?",
+                f"SELECT job_json FROM {self._table} WHERE id = ? AND username = ?",
                 (job_id, username),
             ).fetchone()
-        return MessageJobDetail.model_validate_json(row[0]) if row else None
+        return self._detail_model.model_validate_json(row[0]) if row else None
 
-    def list_jobs(self, username: str, limit: int = 20) -> list[MessageJobSummary]:
+    def list_jobs(self, username: str, limit: int = 20) -> list:
         with sqlite3.connect(self.path) as conn:
             rows = conn.execute(
-                """
-                SELECT job_json FROM message_jobs
+                f"""
+                SELECT job_json FROM {self._table}
                 WHERE username = ?
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -574,10 +459,28 @@ class SQLiteMessageJobRepository(MessageJobRepository):
                 (username, limit),
             ).fetchall()
 
-        # Bỏ `results` (nặng) khi chỉ cần liệt kê.
+        # Summary bỏ các field nặng (results/targets/services) khi chỉ cần liệt kê.
         return [
-            MessageJobSummary.model_validate(
-                MessageJobDetail.model_validate_json(row[0]).model_dump()
+            self._summary_model.model_validate(
+                self._detail_model.model_validate_json(row[0]).model_dump()
             )
             for row in rows
         ]
+
+
+class SQLiteEnrichJobRepository(_SQLiteJobRepository, EnrichJobRepository):
+    _table = "enrich_jobs"
+    _detail_model = EnrichJobDetail
+    _summary_model = EnrichJobSummary
+
+
+class SQLiteMatchJobRepository(_SQLiteJobRepository, MatchJobRepository):
+    _table = "match_jobs"
+    _detail_model = MatchJobDetail
+    _summary_model = MatchJobSummary
+
+
+class SQLiteMessageJobRepository(_SQLiteJobRepository, MessageJobRepository):
+    _table = "message_jobs"
+    _detail_model = MessageJobDetail
+    _summary_model = MessageJobSummary

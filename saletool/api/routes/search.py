@@ -11,12 +11,25 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from saletool.api.deps import get_current_user
 from saletool.db.factory import get_search_run_repository
-from saletool.models import DEFAULT_SENIOR_LEVELS, SearchCriteria
+from saletool.models import DEFAULT_SENIOR_LEVELS, SENIORITY_LEVELS, SearchCriteria
 from saletool.output import write_csv, write_json
 from saletool.pipeline import run_search
 from saletool.providers import get_provider
 
 router = APIRouter(prefix="/api", tags=["search"])
+
+
+@router.get("/search/options")
+def search_options(_: str = Depends(get_current_user)) -> dict:
+    """Các mức seniority hợp lệ, phục vụ form tìm kiếm.
+
+    Trả từ backend thay vì chép cứng ở frontend: danh sách này là quy ước của
+    `saletool/seniority.py`, chép sang JS nghĩa là có hai bản phải nhớ sửa cùng lúc.
+    """
+    return {
+        "seniority_levels": SENIORITY_LEVELS,
+        "default_senior_levels": DEFAULT_SENIOR_LEVELS,
+    }
 
 
 def _split_csv_field(value: str) -> list[str]:
@@ -60,8 +73,10 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
             max_companies=int(field("max_companies", "20") or 20),
             max_contacts_per_company=int(field("max_contacts_per_company", "5") or 5),
         )
-    except Exception as exc:  # noqa: BLE001 - trả lỗi input rõ ràng cho client
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid criteria: {exc}")
+    except Exception as exc:  # bắt rộng để trả lỗi input rõ ràng cho client
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid criteria: {exc}"
+        ) from exc
 
     provider_name = field("provider", "mock")
     tmp_paths: list[Path] = []
@@ -88,8 +103,10 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
 
         provider_instance = get_provider(provider_name, **provider_kwargs)
         results = run_search(criteria, provider_instance)
-    except Exception as exc:  # noqa: BLE001 - trả lỗi rõ ràng thay vì 500 trắng
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Search failed: {exc}")
+    except Exception as exc:  # bắt rộng để trả lỗi rõ ràng thay vì 500 trắng
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Search failed: {exc}"
+        ) from exc
     finally:
         for p in tmp_paths:
             p.unlink(missing_ok=True)

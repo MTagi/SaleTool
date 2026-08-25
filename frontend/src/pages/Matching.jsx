@@ -6,18 +6,7 @@ import { CompanyMatchCard } from "../components/MatchJobView";
 import Prerequisites, { allMet } from "../components/Prerequisites";
 import { useAppStatus } from "../context/StatusContext";
 import { useMatchJob } from "../hooks/useJob";
-
-function formatRun(run) {
-  const criteria = [
-    run.criteria.keywords?.join(", "),
-    run.criteria.industries?.join(", "),
-    run.criteria.locations?.join(", "),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const when = new Date(run.created_at).toLocaleString();
-  return `${criteria || "(no criteria)"} — ${run.total_companies} companies — ${when}`;
-}
+import { formatRun } from "../lib/format";
 
 export default function Matching() {
   const [searchParams] = useSearchParams();

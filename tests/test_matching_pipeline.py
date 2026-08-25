@@ -7,7 +7,12 @@ Thứ hạng và việc map nhãn dịch vụ đều do code quyết định, n�
 import asyncio
 
 from saletool.llm_api import LLMError
-from saletool.matching.llm import MatchScoring, _ServiceFitOut, format_catalog, resolve_fits
+from saletool.matching.llm import (
+    MatchScoring,
+    _ServiceFitOut,
+    format_catalog,
+    resolve_fits,
+)
 from saletool.matching.pipeline import (
     build_company_profile,
     build_enrichment_index,
@@ -28,7 +33,7 @@ from saletool.models import (
 )
 
 
-def _service(name: str, service_id: str = None, **overrides) -> Service:
+def _service(name: str, service_id: str | None = None, **overrides) -> Service:
     payload = {
         "id": service_id or f"id-{name.lower().replace(' ', '-')}",
         "name": name,
@@ -44,7 +49,7 @@ def _result(name="Acme Fintech", **company_fields) -> CompanyResult:
     return CompanyResult(company=Company(name=name, **company_fields))
 
 
-def _match(name: str, score: int, fits: list[int] = None, **overrides) -> CompanyMatch:
+def _match(name: str, score: int, fits: list[int] | None = None, **overrides) -> CompanyMatch:
     fits = fits if fits is not None else [score]
     return CompanyMatch(
         company_name=name,

@@ -29,3 +29,23 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["saletool*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# BLE là lý do chính bật ruff: code có nhiều chỗ bắt Exception có chủ đích (1 công
+# ty lỗi không được làm hỏng cả job) và đã đánh dấu `# noqa: BLE001`. Không bật
+# rule thì những dòng noqa đó vô nghĩa, và chỗ bắt rộng KHÔNG chủ đích cũng lọt.
+select = ["F", "E", "W", "I", "UP", "B", "BLE", "SIM", "RUF"]
+ignore = [
+    "E501",    # độ dài dòng để formatter lo, không chặn commit vì thừa 2 ký tự
+    "RUF001",  # dấu tiếng Việt bị coi là "ký tự dễ nhầm"
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test dùng fixture và hàm giả lập nên có tham số không đụng tới.
+"tests/*" = ["ARG001", "ARG002"]

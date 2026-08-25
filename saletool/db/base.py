@@ -8,6 +8,7 @@ không phải sửa route hay logic auth/search.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 
 from saletool.models import (
     AppSettings,
@@ -80,26 +81,6 @@ class SettingsRepository(ABC):
         """Ghi đè cấu hình. Trả về bản đã lưu (kèm updated_at/updated_by)."""
 
 
-class EnrichJobRepository(ABC):
-    """Lưu trạng thái các job enrich chạy nền."""
-
-    @abstractmethod
-    def create_job(self, job: EnrichJobDetail) -> None:
-        """Tạo bản ghi job mới."""
-
-    @abstractmethod
-    def update_job(self, job: EnrichJobDetail) -> None:
-        """Ghi đè trạng thái job (dùng để cập nhật tiến độ)."""
-
-    @abstractmethod
-    def get_job(self, username: str, job_id: str) -> EnrichJobDetail | None:
-        """Chi tiết 1 job. None nếu không tồn tại hoặc không thuộc user này."""
-
-    @abstractmethod
-    def list_jobs(self, username: str, limit: int = 20) -> list[EnrichJobSummary]:
-        """Các job gần nhất của user, mới nhất trước."""
-
-
 class ServiceRepository(ABC):
     """Catalog dịch vụ của chính công ty — phạm vi toàn hệ thống, không per-user.
 
@@ -128,41 +109,43 @@ class ServiceRepository(ABC):
         """Xoá 1 dịch vụ. Trả về False nếu id không tồn tại."""
 
 
-class MatchJobRepository(ABC):
-    """Lưu trạng thái các job map dịch vụ <-> công ty chạy nền."""
+TSummary = TypeVar("TSummary")
+TDetail = TypeVar("TDetail")
+
+
+class JobRepository(ABC, Generic[TSummary, TDetail]):
+    """Lưu trạng thái một loại job chạy nền.
+
+    Ba loại job (enrich, matching, message) có cùng vòng đời — tạo, cập nhật
+    tiến độ, đọc lại, liệt kê theo user — nên chúng dùng chung interface này và
+    chỉ khác nhau ở kiểu dữ liệu. Các lớp con bên dưới tồn tại để mỗi loại có
+    một tên gọi riêng ở chỗ khai báo phụ thuộc.
+    """
 
     @abstractmethod
-    def create_job(self, job: MatchJobDetail) -> None:
+    def create_job(self, job: TDetail) -> None:
         """Tạo bản ghi job mới."""
 
     @abstractmethod
-    def update_job(self, job: MatchJobDetail) -> None:
+    def update_job(self, job: TDetail) -> None:
         """Ghi đè trạng thái job (dùng để cập nhật tiến độ)."""
 
     @abstractmethod
-    def get_job(self, username: str, job_id: str) -> MatchJobDetail | None:
+    def get_job(self, username: str, job_id: str) -> TDetail | None:
         """Chi tiết 1 job. None nếu không tồn tại hoặc không thuộc user này."""
 
     @abstractmethod
-    def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
+    def list_jobs(self, username: str, limit: int = 20) -> list[TSummary]:
         """Các job gần nhất của user, mới nhất trước."""
 
 
-class MessageJobRepository(ABC):
-    """Lưu trạng thái các job sinh message chạy nền."""
+class EnrichJobRepository(JobRepository[EnrichJobSummary, EnrichJobDetail]):
+    """Job enrich: đọc website công ty để bổ sung thông tin."""
 
-    @abstractmethod
-    def create_job(self, job: MessageJobDetail) -> None:
-        """Tạo bản ghi job mới."""
 
-    @abstractmethod
-    def update_job(self, job: MessageJobDetail) -> None:
-        """Ghi đè trạng thái job (dùng để cập nhật tiến độ)."""
+class MatchJobRepository(JobRepository[MatchJobSummary, MatchJobDetail]):
+    """Job matching: chấm và xếp hạng công ty theo catalog dịch vụ."""
 
-    @abstractmethod
-    def get_job(self, username: str, job_id: str) -> MessageJobDetail | None:
-        """Chi tiết 1 job. None nếu không tồn tại hoặc không thuộc user này."""
 
-    @abstractmethod
-    def list_jobs(self, username: str, limit: int = 20) -> list[MessageJobSummary]:
-        """Các job gần nhất của user, mới nhất trước."""
+class MessageJobRepository(JobRepository[MessageJobSummary, MessageJobDetail]):
+    """Job message: viết message gửi cho từng contact."""

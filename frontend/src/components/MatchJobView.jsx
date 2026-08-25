@@ -10,7 +10,7 @@ function scoreClass(score) {
   return "score-weak";
 }
 
-export function ScoreBadge({ score }) {
+function ScoreBadge({ score }) {
   return <span className={`score-badge ${scoreClass(score)}`}>{score}</span>;
 }
 

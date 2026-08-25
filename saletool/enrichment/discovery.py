@@ -175,7 +175,7 @@ async def urls_from_homepage(
                     continue
                 urls.append(absolute.split("#")[0])
 
-            return [str(resp.url)] + [u for u in dict.fromkeys(urls)][:max_urls]
+            return [str(resp.url), *list(dict.fromkeys(urls))[:max_urls]]
 
     return []
 

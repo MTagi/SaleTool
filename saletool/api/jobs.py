@@ -1,8 +1,8 @@
-"""Chạy job nền (enrich, matching) + lưu tiến độ vào DB.
+"""Chạy job nền (enrich, matching, message) + lưu tiến độ vào DB.
 
-Vì sao chạy nền: enrich 1 công ty mất ~10–30 giây (nhiều trang + LLM), matching
-tốn 1 lượt gọi LLM mỗi công ty. Chạy cả danh sách 20 công ty sẽ vượt xa timeout
-của một HTTP request. Client tạo job rồi poll trạng thái.
+Vì sao chạy nền: enrich 1 công ty mất ~10–30 giây (nhiều trang + LLM); matching
+và message tốn 1 lượt gọi LLM mỗi công ty/contact. Chạy cả danh sách sẽ vượt xa
+timeout của một HTTP request. Client tạo job rồi poll trạng thái.
 
 Vì sao dùng asyncio task thay vì Celery/RQ: đây là tool nội bộ nhóm nhỏ, thêm
 Redis + worker process là quá nặng so với nhu cầu. Đánh đổi cần biết: **job đang
@@ -25,7 +25,12 @@ from saletool.db.factory import (
     get_settings_repository,
 )
 from saletool.enrichment import enrich_company
-from saletool.matching import build_enrichment_index, lookup_enrichment, match_company, rank_matches
+from saletool.matching import (
+    build_enrichment_index,
+    lookup_enrichment,
+    match_company,
+    rank_matches,
+)
 from saletool.messaging import generate_message
 from saletool.models import (
     EnrichJobDetail,
@@ -96,7 +101,7 @@ async def _run_job(job_id: str, username: str) -> None:
 
             try:
                 result = await enrich_company(target, settings)
-            except Exception as exc:  # noqa: BLE001 - 1 công ty lỗi không được làm hỏng cả job
+            except Exception as exc:
                 logger.exception("Enrich thất bại cho '%s'", target.company_name)
                 job.failed += 1
                 job.error = f"{target.company_name}: {exc}"[:500]
@@ -199,7 +204,7 @@ async def _run_match_job(job_id: str, username: str) -> None:
                 match = await match_company(
                     result, job.services, settings, job.objective, enrichment
                 )
-            except Exception as exc:  # noqa: BLE001 - 1 công ty lỗi không được làm hỏng cả job
+            except Exception as exc:
                 logger.exception("Matching thất bại cho '%s'", result.company.name)
                 job.failed += 1
                 job.error = f"{result.company.name}: {exc}"[:500]
@@ -368,7 +373,7 @@ async def _run_message_job(job_id: str, username: str) -> None:
                     match=match,
                     custom_instructions=request.custom_instructions,
                 )
-            except Exception as exc:  # noqa: BLE001 - 1 người lỗi không được làm hỏng cả mẻ
+            except Exception as exc:
                 logger.exception("Sinh message thất bại cho '%s'", target.contact_name)
                 job.failed += 1
                 job.error = f"{target.contact_name}: {exc}"[:500]

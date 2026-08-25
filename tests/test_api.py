@@ -2,25 +2,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from saletool.api.app import app
-from saletool.db.sqlite_repo import SQLiteUserRepository
-from saletool.security import hash_password
+from tests.conftest import auth
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    db_path = tmp_path / "api_test_users.db"
-    monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
-    monkeypatch.setenv("SALETOOL_DB_PATH", str(db_path))
-
-    repo = SQLiteUserRepository(db_path)
-    repo.create_user("alice", hash_password("s3cret-pass"))
-    repo.create_user("bob", hash_password("another-pass"))
-
+def client(db_path):
     with TestClient(app) as c:
         yield c
 
 
 def _login(client, username="alice", password="s3cret-pass") -> str:
+    """Token trần — các test dưới đây kiểm tra chính cơ chế auth nên cần token,
+    không chỉ cần header dựng sẵn như `auth()`."""
     resp = client.post("/api/auth/login", json={"username": username, "password": password})
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -70,8 +63,7 @@ def test_search_requires_auth(client):
 
 
 def test_search_with_mock_provider_and_download(client):
-    token = _login(client)
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = auth(client)
 
     resp = _run_search(client, headers)
     assert resp.status_code == 200
@@ -93,24 +85,19 @@ def test_search_with_mock_provider_and_download(client):
 
 def test_download_without_prior_search_returns_404(client):
     # "bob" chưa từng chạy search — lịch sử được lưu DB, tách theo user.
-    token = _login(client, username="bob", password="another-pass")
-    resp = client.get("/api/download/csv", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get("/api/download/csv", headers=auth(client, "bob", "another-pass"))
     assert resp.status_code == 404
 
 
 def test_search_apollo_without_api_key_returns_400(client):
-    token = _login(client)
     resp = client.post(
-        "/api/search",
-        headers={"Authorization": f"Bearer {token}"},
-        data={"provider": "apollo"},
+        "/api/search", headers=auth(client), data={"provider": "apollo"}
     )
     assert resp.status_code == 400
 
 
 def test_search_persists_history_across_multiple_runs(client):
-    token = _login(client)
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = auth(client)
 
     first = _run_search(client, headers, keywords="fintech").json()
     second = _run_search(client, headers, keywords="payments").json()
@@ -122,8 +109,7 @@ def test_search_persists_history_across_multiple_runs(client):
 
 
 def test_get_run_detail_returns_full_results(client):
-    token = _login(client)
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = auth(client)
     run = _run_search(client, headers).json()
 
     resp = client.get(f"/api/search/runs/{run['run_id']}", headers=headers)
@@ -134,23 +120,21 @@ def test_get_run_detail_returns_full_results(client):
 
 
 def test_get_run_detail_404_for_unknown_id(client):
-    token = _login(client)
-    resp = client.get("/api/search/runs/not-a-real-id", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get("/api/search/runs/not-a-real-id", headers=auth(client))
     assert resp.status_code == 404
 
 
 def test_get_run_detail_404_for_other_users_run(client):
-    alice_headers = {"Authorization": f"Bearer {_login(client)}"}
+    alice_headers = auth(client)
     run = _run_search(client, alice_headers).json()
 
-    bob_headers = {"Authorization": f"Bearer {_login(client, username='bob', password='another-pass')}"}
+    bob_headers = auth(client, "bob", "another-pass")
     resp = client.get(f"/api/search/runs/{run['run_id']}", headers=bob_headers)
     assert resp.status_code == 404
 
 
 def test_download_specific_run_by_id(client):
-    token = _login(client)
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = auth(client)
 
     first = _run_search(client, headers, keywords="fintech").json()
     _run_search(client, headers, keywords="payments").json()  # 2nd run becomes "latest"
@@ -199,3 +183,17 @@ def test_change_password_success_then_login_with_new_password(client):
 
     assert client.post("/api/auth/login", json={"username": "alice", "password": "s3cret-pass"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "alice", "password": "brand-new-pass"}).status_code == 200
+
+
+def test_search_options_are_served_from_the_backend(client):
+    """Frontend không giữ bản chép của danh sách seniority — nó hỏi ở đây."""
+    body = client.get("/api/search/options", headers=auth(client)).json()
+
+    assert "c_suite" in body["seniority_levels"]
+    assert "intern" in body["seniority_levels"]
+    # Mặc định phải là tập con của danh sách đầy đủ, nếu không form sẽ tick 1 ô không tồn tại.
+    assert set(body["default_senior_levels"]) <= set(body["seniority_levels"])
+
+
+def test_search_options_require_auth(client):
+    assert client.get("/api/search/options").status_code == 401

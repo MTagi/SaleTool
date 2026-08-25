@@ -2,28 +2,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from saletool.api.app import app
-from saletool.db.sqlite_repo import SQLiteUserRepository
-from saletool.security import hash_password
+from tests.conftest import auth
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    db_path = tmp_path / "catalog_test.db"
-    monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
-    monkeypatch.setenv("SALETOOL_DB_PATH", str(db_path))
-    monkeypatch.setenv("SALETOOL_SECRET_KEY", "e" * 64)
-
-    repo = SQLiteUserRepository(db_path)
-    repo.create_user("alice", hash_password("s3cret-pass"))
-    repo.create_user("bob", hash_password("another-pass"))
-
+def client(db_path):
     with TestClient(app) as c:
         yield c
-
-
-def _auth(client, username="alice", password="s3cret-pass") -> dict:
-    resp = client.post("/api/auth/login", json={"username": username, "password": password})
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
 def _service(**overrides) -> dict:
@@ -47,11 +32,11 @@ def test_catalog_requires_auth(client):
 
 
 def test_catalog_starts_empty(client):
-    assert client.get("/api/catalog", headers=_auth(client)).json() == []
+    assert client.get("/api/catalog", headers=auth(client)).json() == []
 
 
 def test_create_returns_the_saved_service(client):
-    resp = client.post("/api/catalog", headers=_auth(client), json=_service())
+    resp = client.post("/api/catalog", headers=auth(client), json=_service())
 
     assert resp.status_code == 201
     body = resp.json()
@@ -63,7 +48,7 @@ def test_create_returns_the_saved_service(client):
 
 
 def test_created_service_shows_up_in_the_list(client):
-    headers = _auth(client)
+    headers = auth(client)
     client.post("/api/catalog", headers=headers, json=_service())
 
     services = client.get("/api/catalog", headers=headers).json()
@@ -74,17 +59,17 @@ def test_created_service_shows_up_in_the_list(client):
 def test_catalog_is_shared_between_users(client):
     """Catalog là của công ty, không phải của từng người — bob phải thấy đúng
     thứ alice thêm vào, khác với lịch sử search."""
-    client.post("/api/catalog", headers=_auth(client), json=_service())
+    client.post("/api/catalog", headers=auth(client), json=_service())
 
-    bob_view = client.get("/api/catalog", headers=_auth(client, "bob", "another-pass")).json()
+    bob_view = client.get("/api/catalog", headers=auth(client, "bob", "another-pass")).json()
     assert len(bob_view) == 1
 
 
 def test_update_replaces_fields_and_stamps_the_editor(client):
-    headers = _auth(client)
+    headers = auth(client)
     service_id = client.post("/api/catalog", headers=headers, json=_service()).json()["id"]
 
-    bob = _auth(client, "bob", "another-pass")
+    bob = auth(client, "bob", "another-pass")
     resp = client.put(
         f"/api/catalog/{service_id}",
         headers=bob,
@@ -101,7 +86,7 @@ def test_update_replaces_fields_and_stamps_the_editor(client):
 
 
 def test_update_keeps_the_original_created_at(client):
-    headers = _auth(client)
+    headers = auth(client)
     created = client.post("/api/catalog", headers=headers, json=_service()).json()
 
     updated = client.put(
@@ -112,12 +97,12 @@ def test_update_keeps_the_original_created_at(client):
 
 
 def test_updating_an_unknown_id_is_404(client):
-    resp = client.put("/api/catalog/nope", headers=_auth(client), json=_service())
+    resp = client.put("/api/catalog/nope", headers=auth(client), json=_service())
     assert resp.status_code == 404
 
 
 def test_delete_removes_it(client):
-    headers = _auth(client)
+    headers = auth(client)
     service_id = client.post("/api/catalog", headers=headers, json=_service()).json()["id"]
 
     assert client.delete(f"/api/catalog/{service_id}", headers=headers).status_code == 204
@@ -125,7 +110,7 @@ def test_delete_removes_it(client):
 
 
 def test_deleting_twice_is_404(client):
-    headers = _auth(client)
+    headers = auth(client)
     service_id = client.post("/api/catalog", headers=headers, json=_service()).json()["id"]
 
     client.delete(f"/api/catalog/{service_id}", headers=headers)
@@ -133,14 +118,14 @@ def test_deleting_twice_is_404(client):
 
 
 def test_blank_name_is_rejected(client):
-    resp = client.post("/api/catalog", headers=_auth(client), json=_service(name="   "))
+    resp = client.post("/api/catalog", headers=auth(client), json=_service(name="   "))
     assert resp.status_code == 400
 
 
 def test_whitespace_and_empty_list_entries_are_cleaned(client):
     resp = client.post(
         "/api/catalog",
-        headers=_auth(client),
+        headers=auth(client),
         json=_service(
             name="  Data platform  ",
             category="   ",
@@ -157,7 +142,7 @@ def test_whitespace_and_empty_list_entries_are_cleaned(client):
 
 
 def test_services_are_listed_by_name(client):
-    headers = _auth(client)
+    headers = auth(client)
     for name in ("Zeta audit", "alpha rollout", "Middle service"):
         client.post("/api/catalog", headers=headers, json=_service(name=name))
 

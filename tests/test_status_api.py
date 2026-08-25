@@ -6,7 +6,6 @@ from saletool.db.sqlite_repo import (
     SQLiteSearchRunRepository,
     SQLiteServiceRepository,
     SQLiteSettingsRepository,
-    SQLiteUserRepository,
 )
 from saletool.models import (
     AppSettings,
@@ -17,20 +16,7 @@ from saletool.models import (
     SenderProfile,
     ServiceInput,
 )
-from saletool.security import hash_password
-
-
-@pytest.fixture
-def db_path(tmp_path, monkeypatch):
-    path = tmp_path / "status_test.db"
-    monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
-    monkeypatch.setenv("SALETOOL_DB_PATH", str(path))
-    monkeypatch.setenv("SALETOOL_SECRET_KEY", "b" * 64)
-
-    users = SQLiteUserRepository(path)
-    users.create_user("alice", hash_password("s3cret-pass"))
-    users.create_user("bob", hash_password("another-pass"))
-    return path
+from tests.conftest import auth
 
 
 @pytest.fixture
@@ -39,17 +25,12 @@ def client(db_path):
         yield c
 
 
-def _auth(client, username="alice", password="s3cret-pass") -> dict:
-    resp = client.post("/api/auth/login", json={"username": username, "password": password})
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-
 def test_status_requires_auth(client):
     assert client.get("/api/status").status_code == 401
 
 
 def test_fresh_install_reports_nothing_configured(client):
-    body = client.get("/api/status", headers=_auth(client)).json()
+    body = client.get("/api/status", headers=auth(client)).json()
 
     assert body["llm_configured"] is False
     assert body["sender_configured"] is False
@@ -70,7 +51,7 @@ def test_reports_llm_and_sender_once_configured(client, db_path):
     settings.sender = SenderProfile(full_name="Tran Van A", company_name="ABIM")
     SQLiteSettingsRepository(db_path).save_settings(settings, updated_by="alice")
 
-    body = client.get("/api/status", headers=_auth(client)).json()
+    body = client.get("/api/status", headers=auth(client)).json()
 
     assert body["llm_configured"] is True
     assert body["sender_configured"] is True
@@ -82,7 +63,7 @@ def test_a_half_filled_sender_profile_does_not_count(client, db_path):
     settings.sender = SenderProfile(full_name="Tran Van A", company_name="   ")
     SQLiteSettingsRepository(db_path).save_settings(settings, updated_by="alice")
 
-    body = client.get("/api/status", headers=_auth(client)).json()
+    body = client.get("/api/status", headers=auth(client)).json()
 
     assert body["sender_configured"] is False
 
@@ -92,7 +73,7 @@ def test_counts_active_services_separately(client, db_path):
     repo.create_service(ServiceInput(name="Live one"), updated_by="alice")
     repo.create_service(ServiceInput(name="Retired", active=False), updated_by="alice")
 
-    counts = client.get("/api/status", headers=_auth(client)).json()["counts"]
+    counts = client.get("/api/status", headers=auth(client)).json()["counts"]
 
     assert counts["services"] == 2
     assert counts["active_services"] == 1
@@ -110,7 +91,7 @@ def test_latest_run_is_reported_for_shortcuts(client, db_path):
         ],
     )
 
-    body = client.get("/api/status", headers=_auth(client)).json()
+    body = client.get("/api/status", headers=auth(client)).json()
 
     assert body["latest_run"]["id"] == run.id
     assert body["latest_run"]["total_companies"] == 1
@@ -125,7 +106,7 @@ def test_run_counts_are_per_user_but_catalog_is_shared(client, db_path):
         username="alice", provider="mock", criteria=SearchCriteria(), results=[]
     )
 
-    bob = client.get("/api/status", headers=_auth(client, "bob", "another-pass")).json()
+    bob = client.get("/api/status", headers=auth(client, "bob", "another-pass")).json()
 
     assert bob["counts"]["runs"] == 0
     assert bob["counts"]["services"] == 1

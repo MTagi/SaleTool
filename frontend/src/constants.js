@@ -1,21 +1,10 @@
-// Must match saletool/models.py (SENIORITY_LEVELS / DEFAULT_SENIOR_LEVELS)
-// on the backend — update both sides if the list of levels changes.
-export const SENIORITY_LEVELS = [
-  "owner",
-  "founder",
-  "c_suite",
-  "partner",
-  "vp",
-  "head",
-  "director",
-  "manager",
-  "senior",
-  "entry",
-  "intern",
-];
-
-export const DEFAULT_SENIOR_LEVELS = ["owner", "founder", "c_suite", "partner", "vp", "head", "director"];
-
+/**
+ * Frontend-only constants.
+ *
+ * Anything the backend also knows (seniority levels, message channel limits,
+ * search providers for enrichment) is fetched from the API instead — a copy
+ * here would be a second place to remember to update.
+ */
 export const PROVIDERS = [
   { value: "mock", label: "mock — demo, no API key needed" },
   { value: "apollo", label: "apollo — requires an Apollo.io API key" },

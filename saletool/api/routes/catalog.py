@@ -57,7 +57,9 @@ def update_service(
             service_id, _validated(payload), updated_by=user
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     return service.model_dump()
 
 

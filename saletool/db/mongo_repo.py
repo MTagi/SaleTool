@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, ClassVar
 
 from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
@@ -205,38 +205,6 @@ class MongoSettingsRepository(SettingsRepository):
         return saved
 
 
-class MongoEnrichJobRepository(EnrichJobRepository):
-    def __init__(self, uri: str, db_name: str, client: Any = None):
-        self._collection = _connect(client, uri)[db_name]["enrich_jobs"]
-        self._collection.create_index([("username", 1), ("created_at", -1)])
-
-    def create_job(self, job: EnrichJobDetail) -> None:
-        doc = job.model_dump(mode="json")
-        doc["_id"] = doc.pop("id")
-        self._collection.insert_one(doc)
-
-    def update_job(self, job: EnrichJobDetail) -> None:
-        doc = job.model_dump(mode="json")
-        doc.pop("id", None)
-        self._collection.update_one({"_id": job.id, "username": job.username}, {"$set": doc})
-
-    def get_job(self, username: str, job_id: str) -> EnrichJobDetail | None:
-        doc = self._collection.find_one({"_id": job_id, "username": username})
-        return self._doc_to_detail(doc) if doc else None
-
-    def list_jobs(self, username: str, limit: int = 20) -> list[EnrichJobSummary]:
-        cursor = (
-            self._collection.find({"username": username}, {"results": 0, "targets": 0})
-            .sort("created_at", -1)
-            .limit(limit)
-        )
-        return [EnrichJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
-
-    @staticmethod
-    def _doc_to_detail(doc: dict) -> EnrichJobDetail:
-        return EnrichJobDetail.model_validate({**doc, "id": doc["_id"]})
-
-
 class MongoServiceRepository(ServiceRepository):
     def __init__(self, uri: str, db_name: str, client: Any = None):
         self._collection = _connect(client, uri)[db_name]["services"]
@@ -292,57 +260,61 @@ class MongoServiceRepository(ServiceRepository):
         return Service.model_validate({**doc, "id": doc["_id"]})
 
 
-class MongoMatchJobRepository(MatchJobRepository):
+class _MongoJobRepository:
+    """Phần thân dùng chung cho cả ba loại job — xem `_SQLiteJobRepository`.
+
+    `_list_projection` bỏ các field nặng khi liệt kê; mỗi loại job có bộ field
+    nặng riêng nên đó là chỗ duy nhất chúng khác nhau ngoài tên collection.
+    """
+
+    _collection_name: str
+    _detail_model: type
+    _summary_model: type
+    _list_projection: ClassVar[dict]
+
     def __init__(self, uri: str, db_name: str, client: Any = None):
-        self._collection = _connect(client, uri)[db_name]["match_jobs"]
+        self._collection = _connect(client, uri)[db_name][self._collection_name]
         self._collection.create_index([("username", 1), ("created_at", -1)])
 
-    def create_job(self, job: MatchJobDetail) -> None:
+    def create_job(self, job) -> None:
         doc = job.model_dump(mode="json")
         doc["_id"] = doc.pop("id")
         self._collection.insert_one(doc)
 
-    def update_job(self, job: MatchJobDetail) -> None:
+    def update_job(self, job) -> None:
         doc = job.model_dump(mode="json")
         doc.pop("id", None)
         self._collection.update_one({"_id": job.id, "username": job.username}, {"$set": doc})
 
-    def get_job(self, username: str, job_id: str) -> MatchJobDetail | None:
+    def get_job(self, username: str, job_id: str):
         doc = self._collection.find_one({"_id": job_id, "username": username})
-        return MatchJobDetail.model_validate({**doc, "id": doc["_id"]}) if doc else None
+        return self._detail_model.model_validate({**doc, "id": doc["_id"]}) if doc else None
 
-    def list_jobs(self, username: str, limit: int = 20) -> list[MatchJobSummary]:
+    def list_jobs(self, username: str, limit: int = 20) -> list:
         cursor = (
-            self._collection.find({"username": username}, {"results": 0, "services": 0})
+            self._collection.find({"username": username}, self._list_projection)
             .sort("created_at", -1)
             .limit(limit)
         )
-        return [MatchJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
+        return [self._summary_model.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
 
 
-class MongoMessageJobRepository(MessageJobRepository):
-    def __init__(self, uri: str, db_name: str, client: Any = None):
-        self._collection = _connect(client, uri)[db_name]["message_jobs"]
-        self._collection.create_index([("username", 1), ("created_at", -1)])
+class MongoEnrichJobRepository(_MongoJobRepository, EnrichJobRepository):
+    _collection_name = "enrich_jobs"
+    _detail_model = EnrichJobDetail
+    _summary_model = EnrichJobSummary
+    _list_projection: ClassVar[dict] = {"results": 0, "targets": 0}
 
-    def create_job(self, job: MessageJobDetail) -> None:
-        doc = job.model_dump(mode="json")
-        doc["_id"] = doc.pop("id")
-        self._collection.insert_one(doc)
 
-    def update_job(self, job: MessageJobDetail) -> None:
-        doc = job.model_dump(mode="json")
-        doc.pop("id", None)
-        self._collection.update_one({"_id": job.id, "username": job.username}, {"$set": doc})
+class MongoMatchJobRepository(_MongoJobRepository, MatchJobRepository):
+    _collection_name = "match_jobs"
+    _detail_model = MatchJobDetail
+    _summary_model = MatchJobSummary
+    _list_projection: ClassVar[dict] = {"results": 0, "services": 0}
 
-    def get_job(self, username: str, job_id: str) -> MessageJobDetail | None:
-        doc = self._collection.find_one({"_id": job_id, "username": username})
-        return MessageJobDetail.model_validate({**doc, "id": doc["_id"]}) if doc else None
 
-    def list_jobs(self, username: str, limit: int = 20) -> list[MessageJobSummary]:
-        cursor = (
-            self._collection.find({"username": username}, {"results": 0})
-            .sort("created_at", -1)
-            .limit(limit)
-        )
-        return [MessageJobSummary.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
+class MongoMessageJobRepository(_MongoJobRepository, MessageJobRepository):
+    _collection_name = "message_jobs"
+    _detail_model = MessageJobDetail
+    _summary_model = MessageJobSummary
+    _list_projection: ClassVar[dict] = {"results": 0}

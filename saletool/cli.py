@@ -91,7 +91,7 @@ def web_create_user(username: str, password: str) -> None:
     try:
         repo.create_user(username, hash_password(password))
     except ValueError as exc:
-        raise click.ClickException(str(exc))
+        raise click.ClickException(str(exc)) from exc
     click.echo(f"Đã tạo tài khoản '{username}'.")
 
 
