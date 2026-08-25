@@ -17,6 +17,38 @@ Kiến trúc dùng interface `CompanyContactProvider` (`saletool/providers/base.
 nên có thể bổ sung thêm provider khác (People Data Labs, Proxycurl, Clearbit...)
 mà không phải sửa pipeline.
 
+### Dùng Apollo.io cho hiệu quả
+
+Bốn điều về API Apollo quyết định cách nhập tiêu chí — biết trước thì đỡ mất
+credit và đỡ tưởng là mình nhập sai:
+
+**1. Ô "Industries" thực chất chạy bằng từ khoá.** Apollo lọc ngành qua *tag ID*
+nội bộ, không qua tên ngành. SaleTool tự đẩy tên ngành bạn gõ sang
+`q_organization_keyword_tags` (khớp theo mô tả công ty) — sát hơn nhiều so với
+taxonomy thô của Apollo. Gõ `payment gateway, e-wallet` cho kết quả tốt hơn
+`Financial Services`. Ai đã tra được tag ID thật (chuỗi 24 ký tự hex) thì dán
+vào chính ô đó, code tự nhận ra và dùng đúng bộ lọc.
+
+**2. Search không trả email.** Apollo chỉ cho biết người đó *có* email hay
+không; lấy email thật là một lượt gọi riêng và **đó mới là chỗ trừ credit**.
+SaleTool chỉ tra cho những người Apollo đã báo là có email, gộp 10 người/lượt.
+Bỏ tick **"Look up email addresses"** (hoặc `--no-reveal-emails` ở CLI) để khảo
+sát xem bao nhiêu công ty/người khớp tiêu chí mà không tốn gì.
+
+**3. Email cá nhân mặc định tắt.** Email công việc là thứ dùng cho B2B; email cá
+nhân tốn thêm credit và Apollo không trả về với người ở vùng áp dụng GDPR.
+
+**4. Quy mô là bộ lọc mạnh nhất.** Đặt cả min lẫn max — nó loại một lúc cả tập
+đoàn (không tiếp cận được bằng cold outreach) lẫn công ty 5 người (không có ngân
+sách). Kèm với đó: giữ **1–2 liên hệ/công ty** (số liệu Apollo: 1–2 người đạt
+~7,8% tỉ lệ trả lời, từ 10 người trở lên tụt còn ~3,8%), và đừng tick hết 7 mức
+seniority — công ty <200 người thì `c_suite`/`founder` trả lời tốt, công ty lớn
+thì nhắm `head`/`director` đúng phòng ban.
+
+Nếu gặp **403**: key chưa bật quyền API hoặc gói thuê bao không cho phép
+endpoint đó. SaleTool dùng `mixed_people/api_search` (bản dành cho API) chứ
+không dùng `mixed_people/search` — endpoint sau trả 403 trên gói Basic.
+
 ### Đang dùng LinkedIn Sales Navigator?
 
 Sales Navigator (kể cả gói trả phí) **không** tự cấp API key để gọi tự động —

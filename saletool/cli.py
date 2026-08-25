@@ -32,6 +32,11 @@ def cli() -> None:
     default=None,
     help="[csv_import] File CSV danh sách liên hệ bạn tự export/copy (tuỳ chọn).",
 )
+@click.option(
+    "--no-reveal-emails",
+    is_flag=True,
+    help="[apollo] Bỏ qua bước tra email (tốn credit) — chỉ khảo sát xem bao nhiêu công ty/người khớp.",
+)
 @click.option("--output", "output_path", default="output.csv", show_default=True, help="File kết quả (.csv hoặc .json).")
 @click.option("--verbose", is_flag=True, help="In log chi tiết.")
 def search(
@@ -40,6 +45,7 @@ def search(
     api_key: str | None,
     companies_csv: str | None,
     contacts_csv: str | None,
+    no_reveal_emails: bool,
     output_path: str,
     verbose: bool,
 ) -> None:
@@ -52,6 +58,7 @@ def search(
     provider_kwargs = {}
     if provider == "apollo":
         provider_kwargs["api_key"] = api_key or os.environ.get("APOLLO_API_KEY", "")
+        provider_kwargs["reveal_emails"] = not no_reveal_emails
     elif provider == "csv_import":
         if not companies_csv:
             raise click.UsageError("Provider csv_import cần --companies-csv")

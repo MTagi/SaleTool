@@ -87,6 +87,8 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
             if not api_key:
                 raise ValueError("Provider 'apollo' requires an API key.")
             provider_kwargs["api_key"] = api_key
+            # Tra email tốn credit Apollo, nên phải tắt được từ form.
+            provider_kwargs["reveal_emails"] = field("apollo_reveal_emails", "true") != "false"
         elif provider_name == "csv_import":
             companies_upload = form.get("companies_csv")
             if not companies_upload or not getattr(companies_upload, "filename", None):

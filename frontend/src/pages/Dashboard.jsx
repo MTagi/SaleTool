@@ -64,6 +64,7 @@ const initialFields = {
   max_contacts_per_company: "5",
   provider: "mock",
   apollo_api_key: "",
+  apollo_reveal_emails: "true",
 };
 
 export default function Dashboard() {
@@ -294,6 +295,22 @@ export default function Dashboard() {
                   onChange={(e) => update("apollo_api_key", e.target.value)}
                 />
               </label>
+
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={fields.apollo_reveal_emails === "true"}
+                  onChange={(e) =>
+                    update("apollo_reveal_emails", e.target.checked ? "true" : "false")
+                  }
+                />
+                Look up email addresses — <strong>uses Apollo credits</strong>
+              </label>
+              <p className="muted small-note">
+                Apollo's search never returns emails; revealing them is a separate paid call. Only
+                people Apollo says have an email are looked up. Untick this to see how many
+                companies and people match your criteria without spending anything.
+              </p>
             </div>
           )}
 
