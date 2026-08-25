@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { useAppStatus } from "../context/StatusContext";
 
 const EMPTY_SERVICE = {
   name: "",
@@ -66,6 +67,7 @@ function completeness(service) {
 }
 
 export default function Catalog() {
+  const { refresh: refreshStatus } = useAppStatus();
   const [services, setServices] = useState(null);
   const [form, setForm] = useState(EMPTY_SERVICE);
   const [editingId, setEditingId] = useState(null);
@@ -80,6 +82,8 @@ export default function Catalog() {
   async function load() {
     try {
       setServices(await api.listServices());
+      // The workflow strip marks this step done from the catalog count.
+      refreshStatus();
     } catch (err) {
       setError(err.message || "Couldn't load the catalog.");
     }
@@ -271,7 +275,13 @@ export default function Catalog() {
 
       {services === null && !error && <p className="muted">Loading…</p>}
       {services?.length === 0 && (
-        <p className="muted">Nothing in the catalog yet. Add your first service above.</p>
+        <div className="empty-state">
+          <p>Nothing in the catalog yet.</p>
+          <p className="muted small">
+            Add your first service using the form above. Matching and message generation both read
+            from this list.
+          </p>
+        </div>
       )}
 
       {services?.map((service) => {

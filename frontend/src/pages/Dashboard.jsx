@@ -1,7 +1,57 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { useAppStatus } from "../context/StatusContext";
 import { DEFAULT_SENIOR_LEVELS, PROVIDERS, SENIORITY_LEVELS } from "../constants";
+
+/**
+ * Shown until the first search exists.
+ *
+ * Search itself needs no setup, so this is guidance rather than a blocker —
+ * it just means nobody has to discover the LLM key requirement two pages later.
+ */
+function GettingStarted({ status }) {
+  if (!status || status.counts.runs > 0) return null;
+
+  const items = [
+    {
+      done: status.llm_configured,
+      text: "Add an LLM API key",
+      why: "needed for matching and messages",
+      to: "/settings",
+    },
+    {
+      done: status.counts.active_services > 0,
+      text: "List the services you sell",
+      why: "matching scores companies against these",
+      to: "/catalog",
+    },
+    {
+      done: status.sender_configured,
+      text: "Fill in your sender profile",
+      why: "messages need a name and company to come from",
+      to: "/settings",
+    },
+  ];
+
+  if (items.every((i) => i.done)) return null;
+
+  return (
+    <div className="getting-started">
+      <p className="getting-started-title">First time here? Search works right away.</p>
+      <p className="muted small">These take a minute each and unlock the later steps:</p>
+      <ul>
+        {items.map((item) => (
+          <li key={item.text} className={item.done ? "done" : ""}>
+            <span aria-hidden="true">{item.done ? "✓" : "○"}</span>{" "}
+            {item.done ? item.text : <Link to={item.to}>{item.text}</Link>}{" "}
+            <span className="muted small">— {item.why}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 const initialFields = {
   industries: "",
@@ -18,6 +68,7 @@ const initialFields = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { status, refresh: refreshStatus } = useAppStatus();
   const [fields, setFields] = useState(initialFields);
   const [seniority, setSeniority] = useState(new Set(DEFAULT_SENIOR_LEVELS));
   const [companiesCsv, setCompaniesCsv] = useState(null);
@@ -82,6 +133,7 @@ export default function Dashboard() {
         }
       }
 
+      refreshStatus();
       navigate("/results", { state: { ...data, enrichJobId } });
     } catch (err) {
       setError(err.message || "Search failed.");
@@ -94,6 +146,8 @@ export default function Dashboard() {
     <main className="container">
       <h1>Find companies &amp; senior contacts</h1>
       {error && <p className="error">{error}</p>}
+
+      <GettingStarted status={status} />
 
       <div className="auto-enrich-bar">
         <label className="checkbox">

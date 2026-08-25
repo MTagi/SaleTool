@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import TopBar from "./components/TopBar";
+import WorkflowNav from "./components/WorkflowNav";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
+import { StatusProvider, useAppStatus } from "./context/StatusContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Results from "./pages/Results";
@@ -28,14 +30,35 @@ const PROTECTED_ROUTES = [
 ];
 
 export default function App() {
-  const { loading } = useAuth();
+  const { loading, user } = useAuth();
   if (loading) return null;
+
+  if (!user) {
+    // No point probing readiness before there is a token to probe with.
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  return (
+    <StatusProvider>
+      <SignedInApp />
+    </StatusProvider>
+  );
+}
+
+function SignedInApp() {
+  const { status } = useAppStatus();
 
   return (
     <>
       <TopBar />
+      <WorkflowNav status={status} />
       <Routes>
-        <Route path="/login" element={<LoginOrRedirect />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
         {PROTECTED_ROUTES.map(({ path, element }) => (
           <Route key={path} path={path} element={<ProtectedRoute>{element}</ProtectedRoute>} />
         ))}
@@ -43,10 +66,4 @@ export default function App() {
       </Routes>
     </>
   );
-}
-
-function LoginOrRedirect() {
-  const { user } = useAuth();
-  if (user) return <Navigate to="/" replace />;
-  return <Login />;
 }

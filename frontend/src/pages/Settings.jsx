@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import SettingsSection from "../components/SettingsSection";
+import { useAppStatus } from "../context/StatusContext";
 
 // Sentinel the backend understands as "keep the stored key unchanged".
 const MASKED_SECRET = "__SALETOOL_UNCHANGED__";
@@ -53,6 +55,7 @@ function TestButton({ target, label }) {
 }
 
 export default function Settings() {
+  const { status, refresh: refreshStatus } = useAppStatus();
   const [settings, setSettings] = useState(null);
   const [options, setOptions] = useState(null);
   const [error, setError] = useState(null);
@@ -98,6 +101,8 @@ export default function Settings() {
       const saved = await api.saveSettings(payload);
       setSettings(saved.settings);
       setSuccess("Settings saved.");
+      // Adding the LLM key or the sender profile unblocks later steps.
+      refreshStatus();
     } catch (err) {
       setError(err.message || "Couldn't save settings.");
     } finally {
@@ -127,6 +132,26 @@ export default function Settings() {
     settings.search.provider,
   );
 
+  // Short status lines so each collapsed section still says what it holds.
+  const llmSummary = [
+    settings.llm.model || settings.llm.provider,
+    settings.llm.api_key_set ? "key saved" : "no key",
+  ].join(" · ");
+  const searchSummary =
+    settings.search.provider === "none"
+      ? "Off — company websites only"
+      : `${settings.search.provider}${settings.search.api_key_set ? " · key saved" : ""}`;
+  const senderSummary = settings.sender.full_name
+    ? [settings.sender.full_name, settings.sender.company_name].filter(Boolean).join(" · ")
+    : "Not set — required for messages";
+  const enrichSummary = [
+    settings.enrichment.use_company_website && "website",
+    settings.enrichment.use_web_search && "web search",
+    settings.enrichment.use_llm && "LLM",
+  ]
+    .filter(Boolean)
+    .join(" + ") || "all sources off";
+
   return (
     <main className="container">
       <h1>Settings</h1>
@@ -139,8 +164,11 @@ export default function Settings() {
       {success && <p className="success">{success}</p>}
 
       <form onSubmit={handleSubmit}>
-        <fieldset>
-          <legend>Language model</legend>
+        <SettingsSection
+          title="Language model"
+          summary={llmSummary}
+          defaultOpen={!status || !status.llm_configured}
+        >
           <p className="muted small-note">
             Used to pull out details that plain parsing can't — mainly descriptions and leadership names.
           </p>
@@ -238,10 +266,9 @@ export default function Settings() {
           </div>
 
           <TestButton target="llm" label="Test LLM connection" />
-        </fieldset>
+        </SettingsSection>
 
-        <fieldset>
-          <legend>Web search</legend>
+        <SettingsSection title="Web search" summary={searchSummary}>
           <p className="muted small-note">
             Only needed to find pages <em>other than</em> the company's own site. Reading the company
             website itself uses its sitemap and needs no search provider.
@@ -309,10 +336,13 @@ export default function Settings() {
           {settings.search.provider !== "none" && (
             <TestButton target="search" label="Test search connection" />
           )}
-        </fieldset>
+        </SettingsSection>
 
-        <fieldset>
-          <legend>Sender profile</legend>
+        <SettingsSection
+          title="Sender profile"
+          summary={senderSummary}
+          defaultOpen={Boolean(status) && status.llm_configured && !status.sender_configured}
+        >
           <p className="muted small-note">
             Who the generated messages come from. Without at least a name and company, message
             generation is blocked — a message needs a sender, and the model must not invent one.
@@ -399,10 +429,9 @@ export default function Settings() {
               placeholder={"Tran Van A\nHead of Sales, ABIM"}
             />
           </label>
-        </fieldset>
+        </SettingsSection>
 
-        <fieldset>
-          <legend>Enrichment sources</legend>
+        <SettingsSection title="Enrichment sources" summary={enrichSummary}>
           <p className="muted small-note">
             These run in order, cheapest and most reliable first. Anything found early is not overwritten
             later.
@@ -461,10 +490,9 @@ export default function Settings() {
             />
             Auto-enrich — start enrichment automatically after every search
           </label>
-        </fieldset>
+        </SettingsSection>
 
-        <fieldset>
-          <legend>Crawling behaviour</legend>
+        <SettingsSection title="Crawling behaviour" summary="Politeness and limits">
           <p className="muted small-note">
             Staying polite is what keeps this step low-risk. Please don't turn these off.
           </p>
@@ -534,7 +562,7 @@ export default function Settings() {
               onChange={(e) => updateSection("enrichment", "user_agent", e.target.value)}
             />
           </label>
-        </fieldset>
+        </SettingsSection>
 
         <button type="submit" className="primary" disabled={saving}>
           {saving ? "Saving…" : "Save settings"}

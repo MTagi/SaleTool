@@ -1,12 +1,13 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
+/**
+ * Only the things that are not part of the pipeline live here.
+ *
+ * The five pipeline pages moved into the workflow strip below the bar, because
+ * a flat list of eight links said nothing about which order to use them in.
+ */
 const NAV_ITEMS = [
-  { to: "/", label: "Search", end: true },
-  { to: "/enrichment", label: "Enrichment" },
-  { to: "/catalog", label: "Catalog" },
-  { to: "/matching", label: "Matching" },
-  { to: "/messages", label: "Messages" },
   { to: "/history", label: "History" },
   { to: "/settings", label: "Settings" },
   { to: "/account", label: "Account" },
@@ -21,17 +22,15 @@ export default function TopBar() {
       <NavLink className="brand" to="/">
         ABIM Sales Assistant
       </NavLink>
-      <nav>
-        {NAV_ITEMS.map(({ to, label, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) => (isActive ? "active" : "")}
-          >
+      <nav aria-label="Account and settings">
+        {NAV_ITEMS.map(({ to, label }) => (
+          <NavLink key={to} to={to} className={({ isActive }) => (isActive ? "active" : "")}>
             {label}
           </NavLink>
         ))}
+        <span className="topbar-user" title="Signed in">
+          {user}
+        </span>
         <button className="link-button" onClick={logout}>
           Log out
         </button>

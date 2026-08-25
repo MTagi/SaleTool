@@ -83,12 +83,26 @@ là 1 cặp (công ty, liên hệ).
 ## Web UI — "ABIM Sales Assistant" (FastAPI API + React, có đăng nhập)
 
 Giao diện web mang tên **ABIM Sales Assistant**, toàn bộ UI bằng tiếng Anh,
-gồm 8 trang: **Search** (form tìm kiếm), **Enrichment** (bổ sung dữ liệu công
-ty từ website), **Catalog** (danh mục dịch vụ công ty bạn đang bán),
-**Matching** (chấm và xếp hạng công ty theo dịch vụ, dùng LLM), **Messages**
-(sinh message gửi từng contact), **History** (lịch sử tìm kiếm), **Settings**
+gồm 8 trang. Năm trang đầu là **một quy trình có thứ tự**, hiển thị thành thanh
+5 bước ngay dưới thanh điều hướng, có đánh dấu bước nào đã xong:
+
+> **1 Search** (tìm công ty) → **2 Enrich** (đọc website của họ) →
+> **3 Catalog** (dịch vụ bạn bán) → **4 Match** (xếp hạng danh sách) →
+> **5 Message** (viết cho từng contact)
+
+Ba trang còn lại nằm ở thanh trên: **History** (lịch sử tìm kiếm), **Settings**
 (cấu hình LLM + công cụ search + nguồn enrich + hồ sơ người gửi), **Account**
 (tài khoản + đổi mật khẩu).
+
+Hai nguyên tắc UI đáng nói:
+
+- **Chặn trước, không báo lỗi sau.** Một lượt gọi `GET /api/status` cho biết đã
+  có LLM key chưa, có hồ sơ người gửi chưa, catalog có dịch vụ nào chưa. Trang
+  Matching/Messages hiện ngay đầu trang thứ còn thiếu kèm link tới đúng chỗ sửa,
+  và khoá nút submit — thay vì để người dùng điền hết form rồi nhận lỗi 400.
+- **Nối các bước lại.** Xong search có nút *Rank them →* mang sẵn `run_id` sang
+  Matching; xong matching có nút *Write messages →* mang cả `run_id` lẫn
+  `match_job_id` sang Messages. Không phải chọn lại thủ công ở từng trang.
 
 Kiến trúc: **backend FastAPI** (JSON API thuần, JWT bearer auth) +
 **frontend React** (SPA riêng, thư mục `frontend/`, gọi API qua fetch) +
@@ -120,6 +134,7 @@ tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
 `run_id`), `GET|PUT /api/settings` + `POST /api/settings/test`,
 `POST /api/enrich` + `GET /api/enrich/jobs[/{job_id}]`,
 `GET|POST /api/catalog` + `PUT|DELETE /api/catalog/{service_id}`,
+`GET /api/status` (trạng thái cấu hình + số liệu, dùng cho thanh 5 bước),
 `POST /api/match` + `GET /api/match/jobs[/{job_id}]`,
 `GET /api/messages/options`, `POST /api/messages` + `GET /api/messages/jobs[/{job_id}]`.
 Xem `saletool/api/routes/`.
@@ -371,6 +386,7 @@ saletool/
       catalog.py                  # /api/catalog[/{service_id}]
       match.py                     # /api/match, /api/match/jobs[/{id}]
       messages.py                   # /api/messages, /api/messages/jobs[/{id}]
+      status.py                      # /api/status — cái gì đã cấu hình, cái gì đã có
 frontend/               # React SPA (Vite) "ABIM Sales Assistant", tiếng Anh
                          # — Search, Enrichment, Catalog, Matching, Messages,
                          #   History, Settings, Account

@@ -1,4 +1,10 @@
 import { useState } from "react";
+import { copyText } from "../lib/clipboard";
+
+/** Subject and body as one block, the way it gets pasted into a mail client. */
+export function messageToText(message) {
+  return message.subject ? `${message.subject}\n\n${message.body}` : message.body;
+}
 
 /**
  * One generated message, ready to copy out.
@@ -8,17 +14,12 @@ import { useState } from "react";
  * at all, so it is shown next to the text rather than buried.
  */
 export default function MessageCard({ message }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState(null); // null | "ok" | "failed"
 
   async function copy() {
-    const text = message.subject ? `${message.subject}\n\n${message.body}` : message.body;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
+    const ok = await copyText(messageToText(message));
+    setCopyState(ok ? "ok" : "failed");
+    setTimeout(() => setCopyState(null), 2500);
   }
 
   if (message.error) {
@@ -83,8 +84,13 @@ export default function MessageCard({ message }) {
 
         <div className="actions">
           <button className="secondary" onClick={copy} type="button">
-            {copied ? "Copied" : "Copy"}
+            {copyState === "ok" ? "Copied" : "Copy"}
           </button>
+          {copyState === "failed" && (
+            <span className="test-fail small">
+              Couldn't copy — select the text above and copy it manually.
+            </span>
+          )}
           {message.contact_email && (
             <a
               href={`mailto:${message.contact_email}?subject=${encodeURIComponent(

@@ -22,6 +22,7 @@ from saletool.api.routes import match as match_routes
 from saletool.api.routes import messages as message_routes
 from saletool.api.routes import search as search_routes
 from saletool.api.routes import settings as settings_routes
+from saletool.api.routes import status as status_routes
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(catalog_routes.router)
     app.include_router(match_routes.router)
     app.include_router(message_routes.router)
+    app.include_router(status_routes.router)
 
     @app.get("/api/health")
     def health() -> dict:

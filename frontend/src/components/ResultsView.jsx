@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, getToken } from "../api/client";
 import { EnrichmentResult } from "./EnrichJobView";
 import JobProgress from "./JobProgress";
@@ -111,7 +112,23 @@ export default function ResultsView({
 
       {autoEnrichJob && <JobProgress job={autoEnrichJob} />}
 
-      {companies.length === 0 && <p>No companies matched your criteria.</p>}
+      {companies.length > 0 && runId && (
+        <div className="next-step">
+          <span>Next: score these against your services to decide who to contact first.</span>
+          <Link className="button-link" to={`/matching?run=${runId}`}>
+            Rank them →
+          </Link>
+        </div>
+      )}
+
+      {companies.length === 0 && (
+        <div className="empty-state">
+          <p>No companies matched your criteria.</p>
+          <p className="muted small">
+            Try fewer filters, a wider location, or a larger company-size range.
+          </p>
+        </div>
+      )}
 
       {companies.map((r, i) => (
         <div className="company-card" key={r.company.linkedin_url || r.company.name || i}>

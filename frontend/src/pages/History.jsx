@@ -40,7 +40,14 @@ export default function History() {
 
       {error && <p className="error">{error}</p>}
       {runs === null && !error && <p className="muted">Loading…</p>}
-      {runs?.length === 0 && <p className="muted">No searches yet.</p>}
+      {runs?.length === 0 && (
+        <div className="empty-state">
+          <p>No searches yet.</p>
+          <Link className="button-link" to="/">
+            Run your first search →
+          </Link>
+        </div>
+      )}
 
       {runs?.map((run) => (
         <Link className="history-row" to={`/history/${run.id}`} key={run.id}>

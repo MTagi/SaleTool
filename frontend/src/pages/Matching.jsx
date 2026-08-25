@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import JobProgress from "../components/JobProgress";
 import { CompanyMatchCard } from "../components/MatchJobView";
+import Prerequisites, { allMet } from "../components/Prerequisites";
+import { useAppStatus } from "../context/StatusContext";
 import { useMatchJob } from "../hooks/useJob";
 
 function formatRun(run) {
@@ -18,6 +20,8 @@ function formatRun(run) {
 }
 
 export default function Matching() {
+  const [searchParams] = useSearchParams();
+  const { status, refresh: refreshStatus } = useAppStatus();
   const [runs, setRuns] = useState(null);
   const [services, setServices] = useState(null);
   const [runId, setRunId] = useState("");
@@ -34,14 +38,44 @@ export default function Matching() {
       .then(([runList, serviceList]) => {
         setRuns(runList);
         setServices(serviceList);
-        // Most people want the search they just ran.
-        if (runList.length > 0) setRunId(runList[0].id);
+        // Honour ?run= when arriving from a results page, otherwise default to
+        // the most recent search — the one people almost always mean.
+        const requested = searchParams.get("run");
+        const preselect = runList.find((r) => r.id === requested) || runList[0];
+        if (preselect) setRunId(preselect.id);
         // Pre-tick every active service: matching against the whole catalog is
         // the common case, narrowing it is the exception.
         setSelected(serviceList.filter((s) => s.active).map((s) => s.id));
       })
       .catch((err) => setError(err.message || "Couldn't load searches and services."));
+    // searchParams is only read for the initial preselect; re-running on every
+    // URL change would fight the user's own dropdown choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Once a job finishes, the workflow strip should show this step as done.
+  useEffect(() => {
+    if (job?.status === "completed") refreshStatus();
+  }, [job?.status, refreshStatus]);
+
+  const checks = [
+    {
+      ok: status ? status.llm_configured : true,
+      label: "No LLM API key — matching scores every company with a model",
+      fix: { to: "/settings", text: "add one in Settings" },
+    },
+    {
+      ok: status ? status.counts.active_services > 0 : true,
+      label: "No active services in your catalog to match against",
+      fix: { to: "/catalog", text: "add a service" },
+    },
+    {
+      ok: status ? status.counts.runs > 0 : true,
+      label: "No saved searches yet",
+      fix: { to: "/", text: "run a search" },
+    },
+  ];
+  const ready = allMet(checks);
 
   const activeServices = useMemo(() => (services || []).filter((s) => s.active), [services]);
   const selectedRun = useMemo(() => (runs || []).find((r) => r.id === runId), [runs, runId]);
@@ -97,11 +131,7 @@ export default function Matching() {
       {error && <p className="error">{error}</p>}
       {pollError && <p className="error">{pollError}</p>}
 
-      {services?.length === 0 && (
-        <p className="muted">
-          Your catalog is empty. <Link to="/catalog">Add a service</Link> before matching.
-        </p>
-      )}
+      <Prerequisites checks={checks} />
 
       <form onSubmit={handleSubmit}>
         <fieldset>
@@ -173,14 +203,31 @@ export default function Matching() {
           </label>
         </fieldset>
 
-        <button type="submit" className="primary" disabled={starting || running}>
-          {starting ? "Starting…" : running ? "Ranking…" : "Rank companies"}
+        <button type="submit" className="primary" disabled={starting || running || !ready}>
+          {starting
+            ? "Starting…"
+            : running
+              ? "Ranking…"
+              : `Rank ${selectedRun?.total_companies || ""} companies`}
         </button>
+        {!ready && (
+          <p className="muted small-note">Finish the steps above first.</p>
+        )}
       </form>
 
       {job && (
         <section className="enrich-results">
           <JobProgress job={job} label="Ranking" />
+
+          {job.status === "completed" && job.results?.length > 0 && (
+            <div className="next-step">
+              <span>Ranked. The top companies are the ones to contact first.</span>
+              <Link className="button-link" to={`/messages?run=${job.run_id}&match=${job.id}`}>
+                Write messages →
+              </Link>
+            </div>
+          )}
+
           {job.results?.map((match) => (
             <CompanyMatchCard key={`${match.company_name}-${match.rank}`} match={match} />
           ))}
