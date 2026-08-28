@@ -54,3 +54,56 @@ def wait_for_job(client, headers: dict, url: str, timeout: float = 15.0) -> dict
             return body
         time.sleep(0.05)
     raise AssertionError(f"Job at {url} did not finish in {timeout}s")
+
+
+class StubProvider:
+    """Provider giả cho test route.
+
+    Sản phẩm chỉ còn Apollo, nhưng test của `/api/search` kiểm tra **route** chứ
+    không kiểm tra Apollo (ApolloProvider có bộ test riêng, mock ở tầng HTTP).
+    Stub này giữ vai trò cũ của MockProvider nhưng nằm trong test, không nằm
+    trong sản phẩm.
+    """
+
+    name = "stub"
+
+    def search_companies(self, criteria):
+        from saletool.models import Company
+
+        keyword = criteria.keywords[0] if criteria.keywords else "Demo"
+        return [
+            Company(
+                name=f"{keyword} Company {i}",
+                linkedin_url=f"https://www.linkedin.com/company/{keyword.lower()}-company-{i}",
+                domain=f"{keyword.lower()}company{i}.example.com",
+                industry=criteria.industries[0] if criteria.industries else "Technology",
+                location=criteria.locations[0] if criteria.locations else "Vietnam",
+                employee_count=100 * i,
+                provider_id=f"stub-org-{i}",
+            )
+            for i in range(1, criteria.max_companies + 1)
+        ]
+
+    def search_contacts(self, company, criteria):
+        from saletool.models import Contact
+
+        levels = criteria.seniority_levels or ["c_suite"]
+        return [
+            Contact(
+                full_name=f"Contact {i} of {company.name}",
+                title=criteria.target_titles[0] if criteria.target_titles else "CEO",
+                seniority=levels[(i - 1) % len(levels)],
+                linkedin_url=f"{company.linkedin_url}/employee-{i}",
+                email=f"contact{i}@{company.domain}",
+                company_name=company.name,
+            )
+            for i in range(1, criteria.max_contacts_per_company + 1)
+        ]
+
+
+@pytest.fixture
+def stub_provider(monkeypatch):
+    """Thay nhà cung cấp mà route dựng ra bằng StubProvider."""
+    monkeypatch.setattr(
+        "saletool.api.routes.search.get_provider", lambda name, **kwargs: StubProvider()
+    )

@@ -8,14 +8,9 @@ Công cụ: từ **1 input format mô tả mục tiêu tìm kiếm công ty**, t
 
 SaleTool **không** tự động hoá trình duyệt để scrape trực tiếp
 `linkedin.com` — việc này vi phạm Terms of Service của LinkedIn và có rủi ro
-pháp lý/khoá tài khoản. Thay vào đó, SaleTool gọi API của các **nhà cung cấp
-dữ liệu bên thứ ba** đã tổng hợp dữ liệu công ty/liên hệ (kèm link LinkedIn)
-một cách hợp pháp, ví dụ [Apollo.io](https://apollo.io). Bạn cần tài khoản
-và API key hợp lệ của provider tương ứng.
-
-Kiến trúc dùng interface `CompanyContactProvider` (`saletool/providers/base.py`)
-nên có thể bổ sung thêm provider khác (People Data Labs, Proxycurl, Clearbit...)
-mà không phải sửa pipeline.
+pháp lý/khoá tài khoản. Thay vào đó, SaleTool gọi API của
+[Apollo.io](https://apollo.io) — bên đã tổng hợp dữ liệu công ty/liên hệ (kèm
+link LinkedIn) một cách hợp pháp. Bạn cần tài khoản Apollo và API key hợp lệ.
 
 ### Dùng Apollo.io cho hiệu quả
 
@@ -49,25 +44,21 @@ Nếu gặp **403**: key chưa bật quyền API hoặc gói thuê bao không ch
 endpoint đó. SaleTool dùng `mixed_people/api_search` (bản dành cho API) chứ
 không dùng `mixed_people/search` — endpoint sau trả 403 trên gói Basic.
 
-### Đang dùng LinkedIn Sales Navigator?
+### Muốn dùng nguồn khác ngoài Apollo?
 
-Sales Navigator (kể cả gói trả phí) **không** tự cấp API key để gọi tự động —
-LinkedIn chỉ cấp Sales Navigator API cho đối tác CRM được duyệt chính thức.
-Vì vậy SaleTool có provider **`csv_import`** theo mô hình *human-in-the-loop*:
-bạn tự tìm kiếm/duyệt trên Sales Navigator bằng trình duyệt của chính mình
-(đúng ToS), tự export/copy kết quả ra CSV, rồi đưa cho SaleTool chuẩn hoá +
-lọc theo seniority + xuất kết quả. Xem file mẫu
-`examples/companies_export.example.csv` và `examples/contacts_export.example.csv`
-— tên cột không cần khớp chính xác, provider tự nhận diện qua alias
-(`saletool/providers/csv_import.py`). Nếu cột "seniority" không có sẵn,
-SaleTool tự suy luận từ chức danh (`saletool/seniority.py`).
+Hiện SaleTool **chỉ hỗ trợ Apollo**. Interface `CompanyContactProvider`
+(`saletool/providers/base.py`) và factory `get_provider()` vẫn còn nguyên, nên
+thêm nhà cung cấp khác (People Data Labs, Coresignal…) hoặc dựng lại luồng
+import CSV thủ công từ Sales Navigator chỉ là viết thêm một lớp — không phải
+sửa route hay pipeline. Hai provider `mock` và `csv_import` đã từng có, xem
+lịch sử git nếu cần lấy lại.
 
 ## Cài đặt
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env   # điền APOLLO_API_KEY nếu dùng provider apollo
+cp .env.example .env   # điền APOLLO_API_KEY
 ```
 
 Chạy trên Windows, hoặc muốn dựng luôn cả SearXNG để có web search miễn phí:
@@ -79,33 +70,23 @@ xem [docs/chay-local.md](docs/chay-local.md).
    `examples/search_criteria.example.yaml` (đầy đủ các trường xem
    `saletool/models.py::SearchCriteria`).
 
-2. Chạy thử ngay không cần API key (dùng provider giả lập `mock`):
+2. Chạy với Apollo:
 
    ```bash
+   export APOLLO_API_KEY="..."
+
    python -m saletool.cli search \
      --config examples/search_criteria.example.yaml \
-     --provider mock \
      --output output.csv
    ```
 
-3. Chạy thật với Apollo.io:
+3. Muốn xem có bao nhiêu công ty/người khớp tiêu chí mà **không tốn credit**
+   (bỏ qua bước tra email):
 
    ```bash
    python -m saletool.cli search \
      --config examples/search_criteria.example.yaml \
-     --provider apollo \
-     --api-key "$APOLLO_API_KEY" \
-     --output output.csv
-   ```
-
-4. Hoặc dùng dữ liệu bạn tự export thủ công từ Sales Navigator (CSV):
-
-   ```bash
-   python -m saletool.cli search \
-     --config examples/search_criteria.example.yaml \
-     --provider csv_import \
-     --companies-csv examples/companies_export.example.csv \
-     --contacts-csv examples/contacts_export.example.csv \
+     --no-reveal-emails \
      --output output.csv
    ```
 
@@ -159,8 +140,7 @@ python -m saletool.cli web serve --host 127.0.0.1 --port 8000
 ```
 
 API chính: `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/change-password`,
-`POST /api/search` (multipart — hỗ trợ upload CSV cho provider `csv_import`,
-tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
+`POST /api/search` (multipart, tự lưu vào lịch sử), `GET /api/search/runs` (danh sách lịch sử),
 `GET /api/search/runs/{run_id}` (chi tiết 1 lần chạy), `GET
 /api/download/{csv,json}?run_id=...` (mặc định lần gần nhất nếu không truyền
 `run_id`), `GET|PUT /api/settings` + `POST /api/settings/test`,
@@ -183,8 +163,7 @@ npm run dev
 Mở `http://127.0.0.1:5173`. Vite dev server proxy sẵn `/api/*` sang
 `http://127.0.0.1:8000` (xem `frontend/vite.config.js`) nên không cần cấu
 hình CORS thủ công lúc phát triển. Đăng nhập, điền tiêu chí tìm kiếm ở trang
-**Search**, chọn provider (`mock` để demo, `apollo` với API key, hoặc
-`csv_import` để tải lên CSV tự export từ Sales Navigator), bấm **Search** —
+**Search**, điền Apollo API key, bấm **Search** —
 kết quả hiển thị dạng bảng theo từng công ty kèm liên hệ cấp cao, có nút tải
 CSV/JSON. Mỗi lần tìm kiếm được lưu lại — trang **History** liệt kê các lần
 chạy trước (tiêu chí, provider, số công ty/liên hệ, thời gian) và cho xem
@@ -387,10 +366,8 @@ saletool/
   config.py           # nạp input format YAML/JSON
   security.py          # băm/xác thực mật khẩu (PBKDF2, stdlib only)
   providers/
-    base.py            # interface CompanyContactProvider
-    apollo.py           # provider Apollo.io
-    csv_import.py        # provider import CSV thủ công (vd: Sales Navigator)
-    mock.py              # provider giả lập để demo/test
+    base.py            # interface CompanyContactProvider (điểm mở rộng)
+    apollo.py           # provider duy nhất hiện tại
   seniority.py         # suy luận seniority từ title tự do
   pipeline.py          # điều phối: tìm công ty -> tìm liên hệ mỗi công ty
   output.py             # xuất CSV/JSON
@@ -440,7 +417,5 @@ docs/
   research/              # khảo sát: các cách lấy dữ liệu công ty trên LinkedIn
 examples/
   search_criteria.example.yaml
-  companies_export.example.csv
-  contacts_export.example.csv
 tests/
 ```

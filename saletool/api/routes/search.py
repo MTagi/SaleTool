@@ -18,6 +18,10 @@ from saletool.providers import get_provider
 
 router = APIRouter(prefix="/api", tags=["search"])
 
+# Chỉ còn một nhà cung cấp. Vẫn ghi vào lịch sử để bản ghi cũ đọc được và để
+# phân biệt được nếu sau này thêm nhà cung cấp khác.
+PROVIDER_NAME = "apollo"
+
 
 @router.get("/search/options")
 def search_options(_: str = Depends(get_current_user)) -> dict:
@@ -39,16 +43,6 @@ def _split_csv_field(value: str) -> list[str]:
 def _parse_optional_int(value: str) -> int | None:
     value = value.strip()
     return int(value) if value else None
-
-
-async def _save_upload(upload) -> Path:
-    suffix = Path(upload.filename or "upload.csv").suffix or ".csv"
-    fd, path_str = tempfile.mkstemp(suffix=suffix)
-    path = Path(path_str)
-    content = await upload.read()
-    with os.fdopen(fd, "wb") as f:
-        f.write(content)
-    return path
 
 
 @router.post("/search")
@@ -78,44 +72,28 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid criteria: {exc}"
         ) from exc
 
-    provider_name = field("provider", "mock")
-    tmp_paths: list[Path] = []
+    api_key = field("apollo_api_key")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="An Apollo API key is required."
+        )
+
     try:
-        provider_kwargs: dict = {}
-        if provider_name == "apollo":
-            api_key = field("apollo_api_key")
-            if not api_key:
-                raise ValueError("Provider 'apollo' requires an API key.")
-            provider_kwargs["api_key"] = api_key
+        provider_instance = get_provider(
+            PROVIDER_NAME,
+            api_key=api_key,
             # Tra email tốn credit Apollo, nên phải tắt được từ form.
-            provider_kwargs["reveal_emails"] = field("apollo_reveal_emails", "true") != "false"
-        elif provider_name == "csv_import":
-            companies_upload = form.get("companies_csv")
-            if not companies_upload or not getattr(companies_upload, "filename", None):
-                raise ValueError("Provider 'csv_import' requires a companies CSV file.")
-            companies_path = await _save_upload(companies_upload)
-            tmp_paths.append(companies_path)
-            provider_kwargs["companies_csv"] = str(companies_path)
-
-            contacts_upload = form.get("contacts_csv")
-            if contacts_upload and getattr(contacts_upload, "filename", None):
-                contacts_path = await _save_upload(contacts_upload)
-                tmp_paths.append(contacts_path)
-                provider_kwargs["contacts_csv"] = str(contacts_path)
-
-        provider_instance = get_provider(provider_name, **provider_kwargs)
+            reveal_emails=field("apollo_reveal_emails", "true") != "false",
+        )
         results = run_search(criteria, provider_instance)
     except Exception as exc:  # bắt rộng để trả lỗi rõ ràng thay vì 500 trắng
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Search failed: {exc}"
         ) from exc
-    finally:
-        for p in tmp_paths:
-            p.unlink(missing_ok=True)
 
     # api_key không nằm trong `criteria` nên không bao giờ bị lưu vào lịch sử.
     run = get_search_run_repository().save_run(
-        username=user, provider=provider_name, criteria=criteria, results=results
+        username=user, provider=PROVIDER_NAME, criteria=criteria, results=results
     )
 
     return {

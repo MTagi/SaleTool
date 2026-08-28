@@ -25,7 +25,7 @@ def _run_search(client, headers, **overrides):
         "seniority_levels": ["c_suite", "vp"],
         "max_companies": "3",
         "max_contacts_per_company": "2",
-        "provider": "mock",
+        "apollo_api_key": "test-key",
     }
     data.update(overrides)
     return client.post("/api/search", headers=headers, data=data)
@@ -58,11 +58,11 @@ def test_me_with_valid_token(client):
 
 
 def test_search_requires_auth(client):
-    resp = client.post("/api/search", data={"provider": "mock"})
+    resp = client.post("/api/search", data={"apollo_api_key": "test-key"})
     assert resp.status_code == 401
 
 
-def test_search_with_mock_provider_and_download(client):
+def test_search_and_download(client, stub_provider):
     headers = auth(client)
 
     resp = _run_search(client, headers)
@@ -89,14 +89,15 @@ def test_download_without_prior_search_returns_404(client):
     assert resp.status_code == 404
 
 
-def test_search_apollo_without_api_key_returns_400(client):
-    resp = client.post(
-        "/api/search", headers=auth(client), data={"provider": "apollo"}
-    )
+def test_search_without_api_key_returns_400(client):
+    """Apollo là nguồn duy nhất, nên thiếu key là không chạy được gì."""
+    resp = client.post("/api/search", headers=auth(client), data={"keywords": "fintech"})
+
     assert resp.status_code == 400
+    assert "Apollo API key" in resp.json()["detail"]
 
 
-def test_search_persists_history_across_multiple_runs(client):
+def test_search_persists_history_across_multiple_runs(client, stub_provider):
     headers = auth(client)
 
     first = _run_search(client, headers, keywords="fintech").json()
@@ -104,11 +105,11 @@ def test_search_persists_history_across_multiple_runs(client):
 
     runs = client.get("/api/search/runs", headers=headers).json()
     assert [r["id"] for r in runs] == [second["run_id"], first["run_id"]]
-    assert runs[0]["provider"] == "mock"
+    assert runs[0]["provider"] == "apollo"
     assert runs[0]["criteria"]["keywords"] == ["payments"]
 
 
-def test_get_run_detail_returns_full_results(client):
+def test_get_run_detail_returns_full_results(client, stub_provider):
     headers = auth(client)
     run = _run_search(client, headers).json()
 
@@ -124,7 +125,7 @@ def test_get_run_detail_404_for_unknown_id(client):
     assert resp.status_code == 404
 
 
-def test_get_run_detail_404_for_other_users_run(client):
+def test_get_run_detail_404_for_other_users_run(client, stub_provider):
     alice_headers = auth(client)
     run = _run_search(client, alice_headers).json()
 
@@ -133,7 +134,7 @@ def test_get_run_detail_404_for_other_users_run(client):
     assert resp.status_code == 404
 
 
-def test_download_specific_run_by_id(client):
+def test_download_specific_run_by_id(client, stub_provider):
     headers = auth(client)
 
     first = _run_search(client, headers, keywords="fintech").json()

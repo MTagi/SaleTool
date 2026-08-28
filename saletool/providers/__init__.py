@@ -1,20 +1,18 @@
 from saletool.providers.base import CompanyContactProvider
-from saletool.providers.mock import MockProvider
 
-__all__ = ["CompanyContactProvider", "MockProvider", "get_provider"]
+__all__ = ["CompanyContactProvider", "get_provider"]
 
 
 def get_provider(name: str, **kwargs) -> CompanyContactProvider:
-    """Factory: khởi tạo provider theo tên ('apollo', 'mock', ...)."""
+    """Factory khởi tạo provider theo tên.
 
-    if name == "mock":
-        return MockProvider()
+    Hiện chỉ có Apollo. Factory và interface `CompanyContactProvider` được giữ
+    lại để thêm nhà cung cấp khác sau này (People Data Labs, Coresignal, import
+    CSV thủ công…) mà không phải sửa route hay pipeline — xem lịch sử git cho
+    hai provider `mock` và `csv_import` đã gỡ.
+    """
     if name == "apollo":
         from saletool.providers.apollo import ApolloProvider
 
         return ApolloProvider(**kwargs)
-    if name == "csv_import":
-        from saletool.providers.csv_import import CsvImportProvider
-
-        return CsvImportProvider(**kwargs)
     raise ValueError(f"Provider không được hỗ trợ: {name}")

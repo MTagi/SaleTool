@@ -20,31 +20,17 @@ def cli() -> None:
 
 @cli.command()
 @click.option("--config", "config_path", required=True, help="File input format (.yaml/.json) mô tả mục tiêu tìm kiếm.")
-@click.option("--provider", default="mock", show_default=True, help="Nhà cung cấp dữ liệu: mock, apollo, csv_import.")
-@click.option("--api-key", default=None, help="API key của provider (mặc định lấy từ biến môi trường).")
-@click.option(
-    "--companies-csv",
-    default=None,
-    help="[csv_import] File CSV danh sách công ty bạn tự export/copy (vd: từ Sales Navigator).",
-)
-@click.option(
-    "--contacts-csv",
-    default=None,
-    help="[csv_import] File CSV danh sách liên hệ bạn tự export/copy (tuỳ chọn).",
-)
+@click.option("--api-key", default=None, help="Apollo API key (mặc định lấy từ APOLLO_API_KEY).")
 @click.option(
     "--no-reveal-emails",
     is_flag=True,
-    help="[apollo] Bỏ qua bước tra email (tốn credit) — chỉ khảo sát xem bao nhiêu công ty/người khớp.",
+    help="Bỏ qua bước tra email (tốn credit Apollo) — chỉ khảo sát xem bao nhiêu công ty/người khớp.",
 )
 @click.option("--output", "output_path", default="output.csv", show_default=True, help="File kết quả (.csv hoặc .json).")
 @click.option("--verbose", is_flag=True, help="In log chi tiết.")
 def search(
     config_path: str,
-    provider: str,
     api_key: str | None,
-    companies_csv: str | None,
-    contacts_csv: str | None,
     no_reveal_emails: bool,
     output_path: str,
     verbose: bool,
@@ -55,18 +41,11 @@ def search(
 
     criteria = load_criteria(config_path)
 
-    provider_kwargs = {}
-    if provider == "apollo":
-        provider_kwargs["api_key"] = api_key or os.environ.get("APOLLO_API_KEY", "")
-        provider_kwargs["reveal_emails"] = not no_reveal_emails
-    elif provider == "csv_import":
-        if not companies_csv:
-            raise click.UsageError("Provider csv_import cần --companies-csv")
-        provider_kwargs["companies_csv"] = companies_csv
-        if contacts_csv:
-            provider_kwargs["contacts_csv"] = contacts_csv
+    key = api_key or os.environ.get("APOLLO_API_KEY", "")
+    if not key:
+        raise click.UsageError("Cần Apollo API key: --api-key hoặc biến môi trường APOLLO_API_KEY")
 
-    provider_instance = get_provider(provider, **provider_kwargs)
+    provider_instance = get_provider("apollo", api_key=key, reveal_emails=not no_reveal_emails)
     results = run_search(criteria, provider_instance)
 
     if output_path.lower().endswith(".json"):

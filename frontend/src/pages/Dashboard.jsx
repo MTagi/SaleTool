@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAppStatus } from "../context/StatusContext";
-import { PROVIDERS } from "../constants";
 
 /**
  * Shown until the first search exists.
@@ -62,7 +61,6 @@ const initialFields = {
   target_titles: "",
   max_companies: "20",
   max_contacts_per_company: "5",
-  provider: "mock",
   apollo_api_key: "",
   apollo_reveal_emails: "true",
 };
@@ -73,8 +71,6 @@ export default function Dashboard() {
   const [fields, setFields] = useState(initialFields);
   const [levels, setLevels] = useState([]);
   const [seniority, setSeniority] = useState(new Set());
-  const [companiesCsv, setCompaniesCsv] = useState(null);
-  const [contactsCsv, setContactsCsv] = useState(null);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [autoEnrich, setAutoEnrich] = useState(false);
@@ -118,11 +114,6 @@ export default function Dashboard() {
       const formData = new FormData();
       Object.entries(fields).forEach(([key, value]) => formData.append(key, value));
       seniority.forEach((level) => formData.append("seniority_levels", level));
-      if (fields.provider === "csv_import") {
-        if (!companiesCsv) throw new Error("Provider 'csv_import' requires a companies CSV file.");
-        formData.append("companies_csv", companiesCsv);
-        if (contactsCsv) formData.append("contacts_csv", contactsCsv);
-      }
 
       const data = await api.search(formData);
 
@@ -272,64 +263,30 @@ export default function Dashboard() {
         </fieldset>
 
         <fieldset>
-          <legend>Data source</legend>
+          <legend>Apollo</legend>
           <label>
-            Provider
-            <select value={fields.provider} onChange={(e) => update("provider", e.target.value)}>
-              {PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+            Apollo API key
+            <input
+              type="password"
+              autoComplete="off"
+              value={fields.apollo_api_key}
+              onChange={(e) => update("apollo_api_key", e.target.value)}
+            />
           </label>
 
-          {fields.provider === "apollo" && (
-            <div className="provider-fields">
-              <label>
-                Apollo API key
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={fields.apollo_api_key}
-                  onChange={(e) => update("apollo_api_key", e.target.value)}
-                />
-              </label>
-
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={fields.apollo_reveal_emails === "true"}
-                  onChange={(e) =>
-                    update("apollo_reveal_emails", e.target.checked ? "true" : "false")
-                  }
-                />
-                Look up email addresses — <strong>uses Apollo credits</strong>
-              </label>
-              <p className="muted small-note">
-                Apollo's search never returns emails; revealing them is a separate paid call. Only
-                people Apollo says have an email are looked up. Untick this to see how many
-                companies and people match your criteria without spending anything.
-              </p>
-            </div>
-          )}
-
-          {fields.provider === "csv_import" && (
-            <div className="provider-fields">
-              <p className="muted small-note">
-                Search/browse Sales Navigator yourself in your browser, export the results to CSV,
-                then upload them here.
-              </p>
-              <label>
-                Companies CSV file
-                <input type="file" accept=".csv" onChange={(e) => setCompaniesCsv(e.target.files[0] ?? null)} />
-              </label>
-              <label>
-                Contacts CSV file (optional)
-                <input type="file" accept=".csv" onChange={(e) => setContactsCsv(e.target.files[0] ?? null)} />
-              </label>
-            </div>
-          )}
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={fields.apollo_reveal_emails === "true"}
+              onChange={(e) => update("apollo_reveal_emails", e.target.checked ? "true" : "false")}
+            />
+            Look up email addresses — <strong>uses Apollo credits</strong>
+          </label>
+          <p className="muted small-note">
+            Apollo's search never returns emails; revealing them is a separate paid call. Only
+            people Apollo says have an email are looked up. Untick this to see how many companies
+            and people match your criteria without spending anything.
+          </p>
         </fieldset>
 
         <button type="submit" className="primary" disabled={submitting}>

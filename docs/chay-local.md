@@ -264,12 +264,12 @@ curl -s -o /dev/null -w "backend  HTTP %{http_code}\n" http://127.0.0.1:8000/api
 curl -s -o /dev/null -w "frontend HTTP %{http_code}\n" http://localhost:5173/
 ```
 
-Thử luồng search không cần API key nào (provider `mock`):
+Thử luồng search (cần Apollo API key):
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/api/search \
   -H "Authorization: Bearer $TOKEN" \
-  -F "provider=mock" \
+  -F "apollo_api_key=$APOLLO_API_KEY" \
   -F "config=@examples/search_criteria.example.yaml"
 ```
 
