@@ -63,7 +63,11 @@ def update_service(
     return service.model_dump()
 
 
+# Không chú thích kiểu trả về `-> None`: cùng với `from __future__ import
+# annotations`, FastAPI hiểu chú thích đó thành `NoneType` rồi coi như
+# response model, và 204 thì không được phép có body -> app sập ngay lúc
+# đăng ký route (AssertionError khi import).
 @router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_service(service_id: str, _: str = Depends(get_current_user)) -> None:
+def delete_service(service_id: str, _: str = Depends(get_current_user)):
     if not get_service_repository().delete_service(service_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found.")
