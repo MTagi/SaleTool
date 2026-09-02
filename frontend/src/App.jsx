@@ -55,8 +55,14 @@ function SignedInApp() {
 
   return (
     <>
-      <TopBar />
-      <WorkflowNav status={status} />
+      {/* Both bars scroll away together or not at all, so they share one sticky
+          wrapper. Sticking them separately would mean hardcoding the top bar's
+          height as the workflow strip's offset — and that height changes when
+          the bar wraps on narrow screens. */}
+      <div className="appbar">
+        <TopBar />
+        <WorkflowNav status={status} />
+      </div>
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
         {PROTECTED_ROUTES.map(({ path, element }) => (
