@@ -1,0 +1,87 @@
+# SaleTool / ABIM Sales Assistant.
+#
+# Mặc định: backend (FastAPI) + frontend (React build sẵn, phục vụ qua nginx),
+# dữ liệu trong SQLite trên một volume. Mongo và SearXNG là profile tuỳ chọn.
+#
+# Lưu ý: bản thân ứng dụng KHÔNG đọc file .env. Đọc .env ở đây là việc của
+# Docker Compose — nó thay ${...} bên dưới rồi truyền vào container thành biến
+# môi trường thật.
+name: saletool
+
+services:
+  backend:
+    build:
+      context: .
+      args:
+        # true = cài thêm Playwright + chromium cho tầng dự phòng render JS.
+        INSTALL_BROWSER: ${SALETOOL_INSTALL_BROWSER:-false}
+    environment:
+      # Bắt buộc, và phải CỐ ĐỊNH giữa các lần restart: khoá mã hoá API key lưu
+      # trong DB được suy ra từ đây bằng HKDF, và JWT cũng ký bằng nó. Đổi khoá
+      # = mọi người phải đăng nhập lại và nhập lại API key ở trang Settings.
+      # Cú pháp `:?` khiến compose dừng ngay với thông báo rõ ràng thay vì để
+      # server tự sinh khoá tạm rồi hỏng ngầm.
+      SALETOOL_SECRET_KEY: "${SALETOOL_SECRET_KEY:?chua dat trong .env - sinh khoa bang python -c 'import secrets; print(secrets.token_hex(32))'}"
+
+      SALETOOL_DB_BACKEND: ${SALETOOL_DB_BACKEND:-sqlite}
+      SALETOOL_DB_PATH: /data/saletool.db
+      SALETOOL_MONGO_URI: ${SALETOOL_MONGO_URI:-mongodb://mongo:27017}
+      SALETOOL_MONGO_DB: ${SALETOOL_MONGO_DB:-saletool}
+
+      # UI và API cùng origin qua nginx nên CORS không cần tới. Danh sách này
+      # chỉ phục vụ trường hợp chạy `npm run dev` ở máy host, trỏ vào API này.
+      SALETOOL_CORS_ORIGINS: ${SALETOOL_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+
+      # Chỉ CLI cần. Web UI nhận Apollo key theo từng request trong form.
+      APOLLO_API_KEY: ${APOLLO_API_KEY:-}
+    volumes:
+      - saletool-data:/data
+    ports:
+      # Chỉ mở ra loopback: người dùng đi qua frontend, cổng này để gọi curl và
+      # xem /docs lúc gỡ lỗi. Bỏ dòng này nếu không cần.
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "${SALETOOL_WEB_PORT:-8080}:80"
+    depends_on:
+      backend:
+        # Chờ healthcheck: nginx phân giải "backend" lúc khởi động, backend chưa
+        # có là nginx chết ngay chứ không thử lại.
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Tuỳ chọn: chạy với `--profile mongo` -------------------------------
+  # Kèm theo phải đặt SALETOOL_DB_BACKEND=mongo. Không đưa mongo vào depends_on
+  # của backend: làm vậy thì profile này thành bắt buộc, phá luôn đường SQLite
+  # mặc định. pymongo kết nối lười nên backend khởi động trước cũng không sao.
+  mongo:
+    image: mongo:7
+    profiles: ["mongo"]
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+  # --- Tuỳ chọn: chạy với `--profile searxng` ----------------------------
+  # Web search miễn phí cho tầng 2 của enrichment. Bật xong vào trang Settings:
+  # Web search = searxng, instance URL = http://searxng:8080 (tên service trong
+  # mạng compose, KHÔNG phải 127.0.0.1).
+  searxng:
+    image: searxng/searxng:latest
+    profiles: ["searxng"]
+    volumes:
+      # Không gắn :ro — entrypoint của ảnh chown /etc/searxng lúc khởi động và
+      # sẽ spam "Read-only file system" vào log (chạy vẫn được nhưng khó đọc log).
+      - ./docker/searxng:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: http://localhost:${SALETOOL_SEARXNG_PORT:-8888}/
+    ports:
+      - "127.0.0.1:${SALETOOL_SEARXNG_PORT:-8888}:8080"
+    restart: unless-stopped
+
+volumes:
+  saletool-data:
+  mongo-data:

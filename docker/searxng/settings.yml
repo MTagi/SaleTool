@@ -1,0 +1,28 @@
+# Cấu hình SearXNG cho profile `searxng` trong docker-compose.yml.
+use_default_settings: true
+
+general:
+  instance_name: "SaleTool SearXNG"
+
+server:
+  # BẮT BUỘC đổi trước khi dùng ngoài máy local.
+  secret_key: "saletool-local-searxng-dev-secret-0123456789abcdef"
+  # Instance chỉ nghe trên loopback và chỉ backend gọi vào. Bật lại limiter nếu
+  # mở ra ngoài mạng.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  # Dòng quan trọng nhất: SaleTool gọi GET /search?q=...&format=json
+  # (saletool/enrichment/search/providers.py::SearxngSearchProvider). Mặc định
+  # SearXNG chỉ bật `html` và trả 403 cho mọi request JSON.
+  formats:
+    - html
+    - json
+  safe_search: 0
+  autocomplete: ""
+
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 15.0

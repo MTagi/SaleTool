@@ -1,0 +1,25 @@
+# Build context của backend. Frontend có .dockerignore riêng vì context là ./frontend.
+.git
+.gitignore
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.egg-info
+build
+dist
+.pytest_cache
+.ruff_cache
+
+# Không bao giờ đưa DB hay secret vào ảnh.
+*.db
+.env
+
+frontend
+tests
+docs
+output.csv
+output.json
+Dockerfile
+docker-compose.yml
