@@ -37,6 +37,10 @@ def read_status(user: str = Depends(get_current_user)) -> dict:
     latest_run = runs[0] if runs else None
 
     return {
+        # Bước 1 không chạy được nếu nguồn dữ liệu chưa có key — trang Search
+        # đọc cờ này để chặn trước thay vì để người dùng điền hết form rồi ăn 400.
+        "data_source_provider": settings.data_source.provider,
+        "data_source_configured": bool(settings.data_source.api_key),
         "llm_configured": bool(settings.llm.api_key),
         "sender_configured": settings.sender.is_usable(),
         "search_provider": settings.search.provider,

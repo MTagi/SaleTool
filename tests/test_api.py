@@ -25,7 +25,6 @@ def _run_search(client, headers, **overrides):
         "seniority_levels": ["c_suite", "vp"],
         "max_companies": "3",
         "max_contacts_per_company": "2",
-        "apollo_api_key": "test-key",
     }
     data.update(overrides)
     return client.post("/api/search", headers=headers, data=data)
@@ -58,7 +57,7 @@ def test_me_with_valid_token(client):
 
 
 def test_search_requires_auth(client):
-    resp = client.post("/api/search", data={"apollo_api_key": "test-key"})
+    resp = client.post("/api/search", data={"keywords": "fintech"})
     assert resp.status_code == 401
 
 
@@ -89,12 +88,24 @@ def test_download_without_prior_search_returns_404(client):
     assert resp.status_code == 404
 
 
-def test_search_without_api_key_returns_400(client):
-    """Apollo là nguồn duy nhất, nên thiếu key là không chạy được gì."""
+def test_search_without_configured_key_returns_400(client):
+    """Key nằm ở Settings; chưa cấu hình thì bước Search không chạy được."""
     resp = client.post("/api/search", headers=auth(client), data={"keywords": "fintech"})
 
     assert resp.status_code == 400
-    assert "Apollo API key" in resp.json()["detail"]
+    assert "Settings" in resp.json()["detail"]
+
+
+def test_search_rejects_a_provider_that_is_not_configured(client, data_source_key, stub_provider):
+    """Form không được phép tự chọn nguồn khác với nguồn đã cấu hình."""
+    resp = client.post(
+        "/api/search",
+        headers=auth(client),
+        data={"keywords": "fintech", "data_provider": "not-a-provider"},
+    )
+
+    assert resp.status_code == 400
+    assert "Unsupported data provider" in resp.json()["detail"]
 
 
 def test_search_persists_history_across_multiple_runs(client, stub_provider):

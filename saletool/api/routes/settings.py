@@ -21,12 +21,16 @@ from saletool.crypto import mask
 from saletool.db.factory import get_settings_repository
 from saletool.enrichment.search import get_search_provider
 from saletool.models import (
+    DATA_PROVIDERS,
+    DATA_PROVIDERS_REQUIRING_KEY,
     LLM_PROVIDERS,
     MASKED_SECRET,
     SEARCH_PROVIDERS,
     SEARCH_PROVIDERS_REQUIRING_KEY,
     AppSettings,
+    SearchCriteria,
 )
+from saletool.providers import get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 class TestConnectionRequest(BaseModel):
-    target: str  # "llm" | "search"
+    target: str  # "llm" | "search" | "data_source"
 
 
 class TestConnectionResponse(BaseModel):
@@ -48,8 +52,10 @@ def _to_client_view(settings: AppSettings) -> dict:
     payload = settings.model_dump(mode="json")
     payload["llm"]["api_key"] = mask(settings.llm.api_key)
     payload["search"]["api_key"] = mask(settings.search.api_key)
+    payload["data_source"]["api_key"] = mask(settings.data_source.api_key)
     payload["llm"]["api_key_set"] = bool(settings.llm.api_key)
     payload["search"]["api_key_set"] = bool(settings.search.api_key)
+    payload["data_source"]["api_key_set"] = bool(settings.data_source.api_key)
     return payload
 
 
@@ -72,6 +78,8 @@ def read_settings(_: str = Depends(get_current_user)) -> dict:
     return {
         "settings": _to_client_view(settings),
         "options": {
+            "data_providers": DATA_PROVIDERS,
+            "data_providers_requiring_key": DATA_PROVIDERS_REQUIRING_KEY,
             "llm_providers": LLM_PROVIDERS,
             "search_providers": SEARCH_PROVIDERS,
             "search_providers_requiring_key": SEARCH_PROVIDERS_REQUIRING_KEY,
@@ -84,6 +92,11 @@ def write_settings(payload: AppSettings, user: str = Depends(get_current_user)) 
     repo = get_settings_repository()
     current = repo.get_settings()
 
+    if payload.data_source.provider not in DATA_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported data provider: {payload.data_source.provider}",
+        )
     if payload.llm.provider not in LLM_PROVIDERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -97,6 +110,14 @@ def write_settings(payload: AppSettings, user: str = Depends(get_current_user)) 
 
     payload.llm.api_key = _merge_secret(payload.llm.api_key, current.llm.api_key)
     payload.search.api_key = _merge_secret(payload.search.api_key, current.search.api_key)
+    payload.data_source.api_key = _merge_secret(
+        payload.data_source.api_key, current.data_source.api_key
+    )
+
+    # Cố ý KHÔNG bắt buộc data_source.api_key ở đây: người dùng phải lưu được
+    # settings trước khi có key (vd: mới dựng hệ thống, chưa mua Apollo). Thiếu
+    # key thì /api/status báo chưa cấu hình, trang Search chặn nút submit và
+    # /api/search trả 400 — chặn đúng chỗ cần chặn, không khoá luôn trang Settings.
 
     # Chặn cấu hình bất khả thi ngay tại đây thay vì để enrich fail lúc chạy.
     if payload.search.provider in SEARCH_PROVIDERS_REQUIRING_KEY and not payload.search.api_key:
@@ -144,9 +165,51 @@ async def test_connection(
         return await _test_llm(settings)
     if payload.target == "search":
         return await _test_search(settings)
+    if payload.target == "data_source":
+        return _test_data_source(settings)
 
     raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST, detail="target must be 'llm' or 'search'"
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="target must be 'llm', 'search' or 'data_source'",
+    )
+
+
+def _test_data_source(settings: AppSettings) -> TestConnectionResponse:
+    """Thử một lượt tìm công ty thật để biết key có dùng được không.
+
+    Chỉ gọi bước tìm công ty và `reveal_emails=False`: bước tra email mới là chỗ
+    Apollo trừ credit, không được phép tiêu tiền của người dùng chỉ để test.
+    """
+    if not settings.data_source.api_key:
+        return TestConnectionResponse(ok=False, message="No API key configured.")
+
+    try:
+        provider = get_provider(
+            settings.data_source.provider,
+            api_key=settings.data_source.api_key,
+            reveal_emails=False,
+        )
+        companies = provider.search_companies(
+            SearchCriteria(keywords=["technology"], locations=["Vietnam"], max_companies=1)
+        )
+    except Exception as exc:  # noqa: BLE001 - hiện lỗi thật để người dùng sửa key/quyền
+        return TestConnectionResponse(
+            ok=False,
+            message=f"Data provider '{settings.data_source.provider}' failed.",
+            detail=str(exc)[:500],
+        )
+
+    if not companies:
+        return TestConnectionResponse(
+            ok=True,
+            message="Connected, but the test query matched no companies.",
+            detail="The key works; try different criteria on the Search page.",
+        )
+
+    return TestConnectionResponse(
+        ok=True,
+        message=f"Connected. Found {len(companies)} company.",
+        detail=companies[0].name,
     )
 
 

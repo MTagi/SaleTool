@@ -52,6 +52,11 @@ function GettingStarted({ status }) {
   );
 }
 
+/** Display names for the data providers the backend offers. */
+const DATA_PROVIDER_LABELS = {
+  apollo: "Apollo.io",
+};
+
 const initialFields = {
   industries: "",
   keywords: "",
@@ -61,7 +66,7 @@ const initialFields = {
   target_titles: "",
   max_companies: "20",
   max_contacts_per_company: "5",
-  apollo_api_key: "",
+  data_provider: "",
   apollo_reveal_emails: "true",
 };
 
@@ -70,6 +75,8 @@ export default function Dashboard() {
   const { status, refresh: refreshStatus } = useAppStatus();
   const [fields, setFields] = useState(initialFields);
   const [levels, setLevels] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [providersNeedingKey, setProvidersNeedingKey] = useState([]);
   const [seniority, setSeniority] = useState(new Set());
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -83,6 +90,8 @@ export default function Dashboard() {
       .then((data) => {
         setLevels(data.seniority_levels);
         setSeniority(new Set(data.default_senior_levels));
+        setProviders(data.data_providers || []);
+        setProvidersNeedingKey(data.data_providers_requiring_key || []);
       })
       .catch((err) => setError(err.message || "Couldn't load the seniority options."));
   }, []);
@@ -91,6 +100,30 @@ export default function Dashboard() {
   useEffect(() => {
     if (status) setAutoEnrich(Boolean(status.auto_enrich_on_search));
   }, [status]);
+
+  // The data source is configured in Settings; the form only mirrors it. Seeding
+  // from status keeps the dropdown honest when a second provider is added later.
+  useEffect(() => {
+    if (status?.data_source_provider) {
+      setFields((f) => (f.data_provider ? f : { ...f, data_provider: status.data_source_provider }));
+    }
+  }, [status]);
+
+  // What the *selected* provider still needs, judged against what Settings holds.
+  // Keyed off the dropdown rather than the saved provider so picking a source
+  // nobody has configured yet says so immediately, instead of after submitting.
+  //
+  // Settings stores one data source, so a selection that differs from the saved
+  // provider has no key by definition — that is the second condition below.
+  const selectedProvider = fields.data_provider || status?.data_source_provider || "";
+  const selectedProviderLabel = DATA_PROVIDER_LABELS[selectedProvider] || selectedProvider;
+  const missingForProvider =
+    status && selectedProvider && providersNeedingKey.includes(selectedProvider)
+      ? selectedProvider === status.data_source_provider && status.data_source_configured
+        ? []
+        : ["an API key"]
+      : [];
+  const ready = status ? missingForProvider.length === 0 : false;
 
   function update(name, value) {
     setFields((f) => ({ ...f, [name]: value }));
@@ -263,16 +296,32 @@ export default function Dashboard() {
         </fieldset>
 
         <fieldset>
-          <legend>Apollo</legend>
+          <legend>Data source</legend>
           <label>
-            Apollo API key
-            <input
-              type="password"
-              autoComplete="off"
-              value={fields.apollo_api_key}
-              onChange={(e) => update("apollo_api_key", e.target.value)}
-            />
+            Provider
+            <select
+              value={fields.data_provider}
+              onChange={(e) => update("data_provider", e.target.value)}
+            >
+              {providers.map((p) => (
+                <option key={p} value={p}>
+                  {DATA_PROVIDER_LABELS[p] || p}
+                </option>
+              ))}
+            </select>
           </label>
+
+          {missingForProvider.length > 0 ? (
+            <p className="field-missing" role="status">
+              <strong>{selectedProviderLabel}</strong> is missing{" "}
+              {missingForProvider.join(", ")} — <Link to="/settings">add it in Settings</Link>.
+            </p>
+          ) : (
+            <p className="muted small-note">
+              The API key for this provider lives in Settings, so it is stored encrypted and
+              entered once instead of on every search.
+            </p>
+          )}
 
           <label className="checkbox">
             <input
@@ -289,7 +338,7 @@ export default function Dashboard() {
           </p>
         </fieldset>
 
-        <button type="submit" className="primary" disabled={submitting}>
+        <button type="submit" className="primary" disabled={submitting || !ready}>
           {submitting ? "Searching…" : "Search"}
         </button>
       </form>

@@ -102,8 +102,28 @@ class StubProvider:
 
 
 @pytest.fixture
-def stub_provider(monkeypatch):
-    """Thay nhà cung cấp mà route dựng ra bằng StubProvider."""
+def data_source_key(db_path):
+    """Cấu hình sẵn API key cho nguồn dữ liệu.
+
+    Từ khi key chuyển từ form sang Settings, mọi test chạy /api/search đều cần
+    bước này — nếu không route trả 400 "No API key configured".
+    """
+    from saletool.db.factory import get_settings_repository
+
+    repo = get_settings_repository()
+    settings = repo.get_settings()
+    settings.data_source.api_key = "test-key"
+    repo.save_settings(settings, updated_by="alice")
+    return settings.data_source
+
+
+@pytest.fixture
+def stub_provider(monkeypatch, data_source_key):
+    """Thay nhà cung cấp mà route dựng ra bằng StubProvider.
+
+    Kéo theo `data_source_key` vì route /api/search giờ đọc key từ Settings:
+    không có key thì route trả 400 trước cả khi chạm tới provider.
+    """
     monkeypatch.setattr(
         "saletool.api.routes.search.get_provider", lambda name, **kwargs: StubProvider()
     )

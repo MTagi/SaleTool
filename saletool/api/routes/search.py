@@ -10,17 +10,19 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from saletool.api.deps import get_current_user
-from saletool.db.factory import get_search_run_repository
-from saletool.models import DEFAULT_SENIOR_LEVELS, SENIORITY_LEVELS, SearchCriteria
+from saletool.db.factory import get_search_run_repository, get_settings_repository
+from saletool.models import (
+    DATA_PROVIDERS,
+    DATA_PROVIDERS_REQUIRING_KEY,
+    DEFAULT_SENIOR_LEVELS,
+    SENIORITY_LEVELS,
+    SearchCriteria,
+)
 from saletool.output import write_csv, write_json
 from saletool.pipeline import run_search
 from saletool.providers import get_provider
 
 router = APIRouter(prefix="/api", tags=["search"])
-
-# Chỉ còn một nhà cung cấp. Vẫn ghi vào lịch sử để bản ghi cũ đọc được và để
-# phân biệt được nếu sau này thêm nhà cung cấp khác.
-PROVIDER_NAME = "apollo"
 
 
 @router.get("/search/options")
@@ -33,6 +35,10 @@ def search_options(_: str = Depends(get_current_user)) -> dict:
     return {
         "seniority_levels": SENIORITY_LEVELS,
         "default_senior_levels": DEFAULT_SENIOR_LEVELS,
+        "data_providers": DATA_PROVIDERS,
+        # Frontend cần biết provider nào đòi key để nói đúng cái đang thiếu ngay
+        # dưới ô chọn, thay vì đoán rằng nguồn nào cũng cần key.
+        "data_providers_requiring_key": DATA_PROVIDERS_REQUIRING_KEY,
     }
 
 
@@ -72,16 +78,35 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid criteria: {exc}"
         ) from exc
 
-    api_key = field("apollo_api_key")
-    if not api_key:
+    # Nguồn dữ liệu + API key lấy từ Settings, không lấy từ form: đây là cấu hình
+    # một lần của cả đội và được lưu ở dạng mã hoá. Form chỉ còn giữ những thứ
+    # thay đổi theo từng lượt chạy (tiêu chí + có tra email hay không).
+    data_source = get_settings_repository().get_settings().data_source
+
+    provider_name = field("data_provider") or data_source.provider
+    if provider_name not in DATA_PROVIDERS:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="An Apollo API key is required."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported data provider: {provider_name}",
+        )
+    if provider_name != data_source.provider:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"'{provider_name}' is not the configured data source "
+                f"('{data_source.provider}'). Change it in Settings first."
+            ),
+        )
+    if provider_name in DATA_PROVIDERS_REQUIRING_KEY and not data_source.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No API key configured for '{provider_name}'. Add it in Settings.",
         )
 
     try:
         provider_instance = get_provider(
-            PROVIDER_NAME,
-            api_key=api_key,
+            provider_name,
+            api_key=data_source.api_key,
             # Tra email tốn credit Apollo, nên phải tắt được từ form.
             reveal_emails=field("apollo_reveal_emails", "true") != "false",
         )
@@ -93,7 +118,7 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
 
     # api_key không nằm trong `criteria` nên không bao giờ bị lưu vào lịch sử.
     run = get_search_run_repository().save_run(
-        username=user, provider=PROVIDER_NAME, criteria=criteria, results=results
+        username=user, provider=provider_name, criteria=criteria, results=results
     )
 
     return {

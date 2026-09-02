@@ -97,6 +97,16 @@ class SearchRunDetail(SearchRunSummary):
 
 LLM_PROVIDERS = ["openrouter", "openai_compatible"]
 
+# Nguồn dữ liệu công ty/liên hệ cho bước Search (bước 1). Hiện chỉ có Apollo,
+# nhưng vẫn để dạng danh sách: `CompanyContactProvider` là điểm mở rộng có sẵn
+# nên thêm nhà cung cấp sau này chỉ là thêm phần tử ở đây, không phải sửa form
+# hay route. Frontend đọc danh sách này để dựng dropdown.
+DATA_PROVIDERS = ["apollo"]
+
+# Nhà cung cấp nào bắt buộc có API key. Tách riêng khỏi DATA_PROVIDERS vì có thể
+# sau này thêm nguồn không cần key (vd: import file thủ công).
+DATA_PROVIDERS_REQUIRING_KEY = ["apollo"]
+
 # "none" = không dùng web search, chỉ đọc website của chính công ty.
 SEARCH_PROVIDERS = ["none", "searxng", "brave", "tavily", "serper"]
 
@@ -108,6 +118,19 @@ MASKED_SECRET = "__SALETOOL_UNCHANGED__"
 
 Backend không bao giờ trả key thật về client; nó trả về bản mask để hiển thị.
 Khi lưu, nếu nhận lại đúng sentinel này thì giữ nguyên key cũ."""
+
+
+class DataSourceSettings(BaseModel):
+    """Nguồn dữ liệu cho bước Search.
+
+    API key nằm ở đây (Settings) chứ không nằm trong form tìm kiếm: nó là cấu
+    hình một lần của cả đội, không phải thứ gõ lại mỗi lần chạy. Nhờ vậy key
+    cũng được mã hoá trước khi lưu như mọi key khác (xem saletool/crypto.py),
+    thay vì đi qua form ở dạng thô mỗi lượt.
+    """
+
+    provider: str = "apollo"
+    api_key: str | None = None
 
 
 class LLMSettings(BaseModel):
@@ -183,6 +206,7 @@ class SenderProfile(BaseModel):
 
 
 class AppSettings(BaseModel):
+    data_source: DataSourceSettings = Field(default_factory=DataSourceSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     enrichment: EnrichmentSettings = Field(default_factory=EnrichmentSettings)

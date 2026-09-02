@@ -6,6 +6,10 @@ import { useAppStatus } from "../context/StatusContext";
 // Sentinel the backend understands as "keep the stored key unchanged".
 const MASKED_SECRET = "__SALETOOL_UNCHANGED__";
 
+const DATA_PROVIDER_LABELS = {
+  apollo: "Apollo.io — company + contact records, official API",
+};
+
 const SEARCH_PROVIDER_LABELS = {
   none: "None — read the company's own website only (free)",
   searxng: "SearXNG — self-hosted, no API key, unlimited (free)",
@@ -87,12 +91,20 @@ export default function Settings() {
       // the backend to keep what it already has.
       const payload = {
         ...settings,
+        data_source: {
+          ...settings.data_source,
+          api_key: settings.data_source.api_key_dirty
+            ? settings.data_source.api_key
+            : MASKED_SECRET,
+        },
         llm: { ...settings.llm, api_key: settings.llm.api_key_dirty ? settings.llm.api_key : MASKED_SECRET },
         search: {
           ...settings.search,
           api_key: settings.search.api_key_dirty ? settings.search.api_key : MASKED_SECRET,
         },
       };
+      delete payload.data_source.api_key_dirty;
+      delete payload.data_source.api_key_set;
       delete payload.llm.api_key_dirty;
       delete payload.llm.api_key_set;
       delete payload.search.api_key_dirty;
@@ -133,6 +145,10 @@ export default function Settings() {
   );
 
   // Short status lines so each collapsed section still says what it holds.
+  const dataSourceSummary = [
+    DATA_PROVIDER_LABELS[settings.data_source.provider] || settings.data_source.provider,
+    settings.data_source.api_key_set ? "key saved" : "no key — search is blocked",
+  ].join(" · ");
   const llmSummary = [
     settings.llm.model || settings.llm.provider,
     settings.llm.api_key_set ? "key saved" : "no key",
@@ -164,6 +180,51 @@ export default function Settings() {
       {success && <p className="success">{success}</p>}
 
       <form onSubmit={handleSubmit}>
+        <SettingsSection
+          title="Data source"
+          summary={dataSourceSummary}
+          defaultOpen={!status || !status.data_source_configured}
+        >
+          <p className="muted small-note">
+            Where company and contact records come from in step 1. Searching is blocked until this
+            provider has a key.
+          </p>
+
+          <label>
+            Provider
+            <select
+              value={settings.data_source.provider}
+              onChange={(e) => updateSection("data_source", "provider", e.target.value)}
+            >
+              {(options?.data_providers || []).map((p) => (
+                <option key={p} value={p}>
+                  {DATA_PROVIDER_LABELS[p] || p}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            API key{" "}
+            {settings.data_source.api_key_set && !settings.data_source.api_key_dirty && (
+              <em>(saved)</em>
+            )}
+            <input
+              type="password"
+              autoComplete="off"
+              value={settings.data_source.api_key_dirty ? settings.data_source.api_key : ""}
+              onChange={(e) =>
+                setSettings((s) => ({
+                  ...s,
+                  data_source: { ...s.data_source, api_key: e.target.value, api_key_dirty: true },
+                }))
+              }
+            />
+          </label>
+
+          <TestButton target="data_source" label="Test data source" />
+        </SettingsSection>
+
         <SettingsSection
           title="Language model"
           summary={llmSummary}
