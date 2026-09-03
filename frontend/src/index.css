@@ -54,7 +54,11 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--gradient-bg);
+  /* `fixed` là bắt buộc, không phải trang trí: body cao đúng 100% viewport
+     (xem luật height ngay trên), nên trên trang dài hơn màn hình vùng vẽ nền
+     vẫn chỉ cao bằng viewport và gradient bị *lặp lại* — cuộn xuống thấy nó
+     restart thành một vệt ngang. Neo vào viewport thì nó vẽ một lần duy nhất. */
+  background: var(--gradient-bg) fixed;
   min-height: 100vh;
   color: var(--ink);
   font-family: ui-sans-serif, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -766,7 +770,10 @@ form code {
 .page-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  /* `baseline` chứ không phải `flex-end`: khối trái là h1 + đoạn dẫn dài, canh
+     đáy sẽ dìm hàng link xuống ngang chân đoạn dẫn, trông như nó rơi ra khỏi
+     tiêu đề. Canh theo baseline thì link nằm đúng dòng h1. */
+  align-items: baseline;
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
