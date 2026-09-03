@@ -162,8 +162,9 @@ npm run dev
 
 Mở `http://127.0.0.1:5173`. Vite dev server proxy sẵn `/api/*` sang
 `http://127.0.0.1:8000` (xem `frontend/vite.config.js`) nên không cần cấu
-hình CORS thủ công lúc phát triển. Đăng nhập, điền tiêu chí tìm kiếm ở trang
-**Search**, điền Apollo API key, bấm **Search** —
+hình CORS thủ công lúc phát triển. Đăng nhập, nhập Apollo API key **một lần** ở
+trang **Settings** (mã hoá trước khi lưu), rồi điền tiêu chí tìm kiếm ở trang
+**Search** và bấm **Search** —
 kết quả hiển thị dạng bảng theo từng công ty kèm liên hệ cấp cao, có nút tải
 CSV/JSON. Mỗi lần tìm kiếm được lưu lại — trang **History** liệt kê các lần
 chạy trước (tiêu chí, provider, số công ty/liên hệ, thời gian) và cho xem

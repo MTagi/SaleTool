@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # Các mức seniority thường gặp (khớp với cách Apollo.io/PDL phân loại),
@@ -295,18 +297,45 @@ class EnrichTarget(BaseModel):
     )
 
 
-class EnrichJobSummary(BaseModel):
+# ---------------------------------------------------------------------------
+# Job nền: phần trạng thái chung của cả ba loại (enrich, matching, message)
+# ---------------------------------------------------------------------------
+
+#: Vòng đời của một job nền. "pending" và "running" là hai trạng thái *chưa
+#: xong* — client còn poll, và job đang ở đó lúc server khởi động lại sẽ bị
+#: đánh dấu failed (xem `api/jobs.py`).
+JobStatus = Literal["pending", "running", "completed", "failed"]
+
+#: Những trạng thái mà job còn được chạy tiếp. Đặt tên vì cả ba runner đều kiểm
+#: đúng điều kiện này trước khi nhận job.
+ACTIVE_JOB_STATUSES: tuple[JobStatus, ...] = ("pending", "running")
+
+
+class BackgroundJobSummary(BaseModel):
+    """Phần chung của mọi job nền — danh tính, vòng đời, tiến độ.
+
+    Ba loại job khác nhau ở dữ liệu vào/ra, còn phần này thì giống hệt, và
+    frontend dựa đúng vào chỗ giống hệt đó để dùng chung một hook poll cho cả
+    ba. Gom vào một model để chúng không lệch nhau khi thêm trường.
+    """
+
     id: str
     username: str
-    status: str
+    status: JobStatus
     created_at: str
     started_at: str | None = None
     finished_at: str | None = None
     total: int = 0
     completed: int = 0
     failed: int = 0
-    current_target: str | None = None
-    error: str | None = None
+    current_target: str | None = Field(
+        default=None, description="Đang xử lý cái gì — để UI hiện tiến độ có nghĩa"
+    )
+    error: str | None = Field(default=None, description="Lỗi gần nhất, không phải lỗi duy nhất")
+
+
+class EnrichJobSummary(BackgroundJobSummary):
+    """Job enrich: đọc website của một danh sách công ty."""
 
 
 class EnrichJobDetail(EnrichJobSummary):
@@ -413,20 +442,11 @@ class MatchRequest(BaseModel):
     )
 
 
-class MatchJobSummary(BaseModel):
-    id: str
-    username: str
-    status: str
-    created_at: str
-    started_at: str | None = None
-    finished_at: str | None = None
+class MatchJobSummary(BackgroundJobSummary):
+    """Job matching: chấm một lần search đã lưu với catalog dịch vụ."""
+
     run_id: str
     objective: str | None = None
-    total: int = 0
-    completed: int = 0
-    failed: int = 0
-    current_target: str | None = None
-    error: str | None = None
 
 
 class MatchJobDetail(MatchJobSummary):
@@ -566,22 +586,13 @@ class MessageRequest(BaseModel):
     )
 
 
-class MessageJobSummary(BaseModel):
-    id: str
-    username: str
-    status: str
-    created_at: str
-    started_at: str | None = None
-    finished_at: str | None = None
+class MessageJobSummary(BackgroundJobSummary):
+    """Job sinh message cho một danh sách contact."""
+
     run_id: str
     channel: str
     language: str
     tone: str
-    total: int = 0
-    completed: int = 0
-    failed: int = 0
-    current_target: str | None = None
-    error: str | None = None
     notices: list[str] = Field(
         default_factory=list, description="Cảnh báo ở mức cả job, vd: chọn quá nhiều người 1 công ty"
     )
