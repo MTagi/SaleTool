@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { unmet } from "../lib/prerequisites";
 
 /**
  * Missing prerequisites for a step, shown before the form rather than after.
@@ -10,7 +11,7 @@ import { Link } from "react-router-dom";
  * Returns null when everything passes, so callers can drop it in unconditionally.
  */
 export default function Prerequisites({ checks }) {
-  const missing = checks.filter((c) => !c.ok);
+  const missing = unmet(checks);
   if (missing.length === 0) return null;
 
   return (
@@ -34,9 +35,4 @@ export default function Prerequisites({ checks }) {
       </ul>
     </div>
   );
-}
-
-/** True when every check passes; use it to disable the submit button. */
-export function allMet(checks) {
-  return checks.every((c) => c.ok);
 }

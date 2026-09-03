@@ -52,10 +52,13 @@ export default function Login() {
               autoComplete="current-password"
             />
           </label>
-          <button type="submit" disabled={submitting}>
+          <button type="submit" className="primary" disabled={submitting}>
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <p className="muted small-note auth-footnote">
+          There is no public sign-up — accounts are created by your administrator.
+        </p>
       </div>
     </main>
   );

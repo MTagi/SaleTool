@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import JobProgress from "../components/JobProgress";
-import MessageCard, { messageToText } from "../components/MessageCard";
-import Prerequisites, { allMet } from "../components/Prerequisites";
+import MessageCard from "../components/MessageCard";
+import Prerequisites from "../components/Prerequisites";
 import { copyText } from "../lib/clipboard";
 import { useAppStatus } from "../context/StatusContext";
 import { useMessageJob } from "../hooks/useJob";
+import { useSelection } from "../hooks/useSelection";
 import { formatRun } from "../lib/format";
+import { messagesToText } from "../lib/message";
+import { allMet } from "../lib/prerequisites";
 
 const LANGUAGE_LABELS = { en: "English", vi: "Tiếng Việt" };
 
@@ -19,7 +22,7 @@ export default function Messages() {
   const [matchJobs, setMatchJobs] = useState([]);
   const [runId, setRunId] = useState("");
   const [run, setRun] = useState(null);
-  const [selected, setSelected] = useState([]);
+  const picked = useSelection();
   const [filter, setFilter] = useState("");
   const [channel, setChannel] = useState("email");
   const [tone, setTone] = useState("direct");
@@ -31,7 +34,7 @@ export default function Messages() {
   const [starting, setStarting] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
 
-  const { job, error: pollError } = useMessageJob(jobId);
+  const { job, error: pollError, running } = useMessageJob(jobId);
 
   // Arriving from a finished matching run carries both ids in the URL, so the
   // matching context is already selected instead of having to be found again.
@@ -55,18 +58,22 @@ export default function Messages() {
     if (job?.status === "completed") refreshStatus();
   }, [job?.status, refreshStatus]);
 
-  // Load the run's contacts whenever the selected run changes.
+  // Load the run's contacts whenever the selected run changes. Đổi run thì tập
+  // đang chọn không còn nghĩa gì nữa (chỉ số trỏ vào danh sách cũ), nên xoá luôn.
+  // `clearPicked` tách ra vì nó ổn định, còn `picked` đổi theo mỗi lần tick —
+  // để nguyên `picked` trong deps là effect chạy lại sau mỗi cú tick.
+  const clearPicked = picked.clear;
   useEffect(() => {
     if (!runId) {
       setRun(null);
       return;
     }
-    setSelected([]);
+    clearPicked();
     api
       .getRun(runId)
       .then(setRun)
       .catch((err) => setError(err.message || "Couldn't load that search run."));
-  }, [runId]);
+  }, [runId, clearPicked]);
 
   // A matching run only helps if it scored this same search.
   const usableMatchJobs = useMemo(
@@ -79,6 +86,9 @@ export default function Messages() {
     setMatchJobId((requested || usableMatchJobs[0])?.id || "");
   }, [usableMatchJobs, requestedMatch]);
 
+  // Tick theo *chỉ số* trong danh sách này, không theo khoá ghép từ tên: tên
+  // công ty và tên người đều có dấu cách, nên khoá ghép sẽ phải tách ngược ra và
+  // hỏng ngay ở cái tên hai chữ đầu tiên.
   const contacts = useMemo(() => {
     if (!run) return [];
     return run.results.flatMap((result) =>
@@ -122,47 +132,34 @@ export default function Messages() {
   const ready = allMet(checks);
 
   async function copyEverything() {
-    const text = (job?.results || [])
-      .filter((m) => !m.error)
-      .map((m) => `--- ${m.contact_name} (${m.company_name}) ---\n${messageToText(m)}`)
-      .join("\n\n");
-    setCopiedAll(await copyText(text));
+    setCopiedAll(await copyText(messagesToText(job?.results || [])));
     setTimeout(() => setCopiedAll(false), 2000);
-  }
-
-  // Selection is by index into `contacts`, not by a composed string key:
-  // company and contact names both contain spaces, so a string key would have
-  // to be split apart again and would break on the first two-word name.
-  function toggle(index) {
-    setSelected((prev) =>
-      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
-    );
   }
 
   // Apollo's numbers: one or two contacts per account replies roughly twice as
   // well as blanketing everyone, so make that the one-click option.
   function selectTopPerCompany(limit) {
-    const perCompany = {};
+    const seenPerCompany = {};
     const picks = [];
     contacts.forEach(({ companyName }, index) => {
-      perCompany[companyName] = (perCompany[companyName] || 0) + 1;
-      if (perCompany[companyName] <= limit) picks.push(index);
+      seenPerCompany[companyName] = (seenPerCompany[companyName] || 0) + 1;
+      if (seenPerCompany[companyName] <= limit) picks.push(index);
     });
-    setSelected(picks);
+    picked.replace(picks);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
 
-    if (selected.length === 0) {
+    if (picked.isEmpty) {
       setError("Pick at least one contact.");
       return;
     }
 
     setStarting(true);
     try {
-      const targets = selected.map((index) => ({
+      const targets = picked.toList().map((index) => ({
         company_name: contacts[index].companyName,
         contact_name: contacts[index].contact.full_name,
       }));
@@ -183,187 +180,260 @@ export default function Messages() {
     }
   }
 
-  const running = job && (job.status === "pending" || job.status === "running");
-
   return (
     <main className="container">
-      <div className="results-header">
-        <h1>Generate messages</h1>
-        <div className="actions">
+      <div className="page-head">
+        <div>
+          <h1>Write first-touch messages</h1>
+          <p className="lede">
+            One draft per contact, built from what the earlier steps already know. Every draft is
+            re-checked in code against the real channel limits before you see it.
+          </p>
+        </div>
+        <div className="toolbar">
           <Link to="/matching">Matching</Link>
           <Link to="/settings">Sender profile</Link>
         </div>
       </div>
-
-      <p className="muted">
-        Writes a first-touch message for each contact you pick, using what the tool already knows
-        about their company. One LLM call per contact. Every draft is checked against the real
-        channel limits before you see it.
-      </p>
 
       {error && <p className="error">{error}</p>}
       {pollError && <p className="error">{pollError}</p>}
 
       <Prerequisites checks={checks} />
 
-      <form onSubmit={handleSubmit}>
-        <fieldset>
-          <legend>Contacts</legend>
-          <label>
-            Search run
-            <select value={runId} onChange={(e) => setRunId(e.target.value)}>
-              {runs === null && <option value="">Loading…</option>}
-              {runs?.length === 0 && <option value="">No searches yet</option>}
-              {runs?.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {formatRun(r, "contacts")}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {run && contacts.length === 0 && (
-            <p className="muted small-note">This run has no contacts to write to.</p>
-          )}
-
-          {contacts.length > 0 && (
-            <>
-              <div className="picker-toolbar">
-                <input
-                  type="text"
-                  className="picker-filter"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  placeholder={`Filter ${contacts.length} contacts by name, title or company`}
-                  aria-label="Filter contacts"
-                />
-                <div className="actions">
-                  <button type="button" className="link-button" onClick={() => selectTopPerCompany(1)}>
-                    Pick 1 per company
-                  </button>
-                  <button type="button" className="link-button" onClick={() => selectTopPerCompany(2)}>
-                    Pick 2 per company
-                  </button>
-                  <button type="button" className="link-button" onClick={() => setSelected([])}>
-                    Clear
-                  </button>
-                  <span className="muted small">
-                    <strong>{selected.length}</strong> selected
-                  </span>
+      <div className="cols">
+        <form id="messages-form" onSubmit={handleSubmit}>
+          <section className="card2">
+            <header>
+              <h2>Setup</h2>
+            </header>
+            <div className="cb">
+              <div className="g2">
+                <label>
+                  Contacts from
+                  <select value={runId} onChange={(e) => setRunId(e.target.value)}>
+                    {runs === null && <option value="">Loading…</option>}
+                    {runs?.length === 0 && <option value="">No searches yet</option>}
+                    {runs?.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {formatRun(r, "contacts")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div>
+                  <label>
+                    Reason for writing
+                    <select value={matchJobId} onChange={(e) => setMatchJobId(e.target.value)}>
+                      <option value="">None — write without a per-company reason</option>
+                      {usableMatchJobs.map((j) => (
+                        <option key={j.id} value={j.id}>
+                          {new Date(j.created_at).toLocaleString()} · {j.completed} companies scored
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="muted small-note">
+                    {usableMatchJobs.length === 0
+                      ? "No completed matching run for this search yet — running Matching first gives each message a specific opening line."
+                      : "Supplies the best-fit service and the reason it fits, which is what the opening line is built from."}
+                  </p>
                 </div>
               </div>
 
-              <div className="contact-picker">
-                {visibleContacts.length === 0 && (
-                  <p className="muted small" style={{ padding: "8px" }}>
-                    No contact matches “{filter}”.
-                  </p>
-                )}
-                {visibleContacts.map(({ companyName, contact, index }) => (
-                  <label className="contact-pick" key={`${companyName}-${contact.full_name}-${index}`}>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(index)}
-                      onChange={() => toggle(index)}
-                    />
-                    <span className="contact-name">{contact.full_name}</span>
-                    <span className="contact-title">{contact.title || "—"}</span>
-                    <span className="muted small">{companyName}</span>
+              <div className="g3">
+                <div>
+                  <label>
+                    Channel
+                    <select value={channel} onChange={(e) => setChannel(e.target.value)}>
+                      {options?.channels.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                ))}
+                  {channelSpec && (
+                    <p className="muted small-note">
+                      {channelSpec.guidance}
+                      {channelSpec.max_body_chars &&
+                        ` Hard limit ${channelSpec.max_body_chars} characters.`}
+                      {channelSpec.max_body_words && ` Target under ${channelSpec.max_body_words} words.`}
+                    </p>
+                  )}
+                </div>
+                <label>
+                  Tone
+                  <select value={tone} onChange={(e) => setTone(e.target.value)}>
+                    {options?.tones.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Language
+                  <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                    {options?.languages.map((l) => (
+                      <option key={l} value={l}>
+                        {LANGUAGE_LABELS[l] || l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
-              {filter && selected.length > visibleContacts.filter((c) => selected.includes(c.index)).length && (
-                <p className="muted small-note">
-                  Some selected contacts are hidden by the filter — they are still included.
-                </p>
-              )}
-            </>
-          )}
-        </fieldset>
 
-        <fieldset>
-          <legend>Message</legend>
-          <div className="row">
-            <label>
-              Channel
-              <select value={channel} onChange={(e) => setChannel(e.target.value)}>
-                {options?.channels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Tone
-              <select value={tone} onChange={(e) => setTone(e.target.value)}>
-                {options?.tones.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Language
-              <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                {options?.languages.map((l) => (
-                  <option key={l} value={l}>
-                    {LANGUAGE_LABELS[l] || l}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+              <label>
+                Extra instructions <span className="muted">— optional</span>
+                <input
+                  type="text"
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  placeholder="Mention we'll be at the Hanoi manufacturing expo next month"
+                />
+              </label>
+            </div>
+          </section>
 
-          {channelSpec && (
-            <p className="muted small-note">
-              {channelSpec.guidance}
-              {channelSpec.max_body_chars && ` Hard limit ${channelSpec.max_body_chars} characters.`}
-              {channelSpec.max_body_words && ` Target under ${channelSpec.max_body_words} words.`}
-            </p>
-          )}
+          <section className="card2">
+            <header>
+              <h2>Who to write to</h2>
+              <span className="hint">
+                {picked.size} of {contacts.length} selected
+              </span>
+            </header>
 
-          <label>
-            Use a matching run for context
-            <select value={matchJobId} onChange={(e) => setMatchJobId(e.target.value)}>
-              <option value="">None — write without a per-company reason</option>
-              {usableMatchJobs.map((j) => (
-                <option key={j.id} value={j.id}>
-                  {new Date(j.created_at).toLocaleString()} · {j.completed} companies scored
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="muted small-note">
-            {usableMatchJobs.length === 0
-              ? "No completed matching run for this search yet — running Matching first gives each message a specific opening line."
-              : "Supplies the best-fit service and the reason it fits, which is what the opening line is built from."}
-          </p>
+            {run && contacts.length === 0 && (
+              <p className="muted small cb">This run has no contacts to write to.</p>
+            )}
 
-          <label>
-            Extra instructions (optional)
-            <input
-              type="text"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder="Mention we'll be at the Hanoi manufacturing expo next month"
-            />
-          </label>
-        </fieldset>
+            {contacts.length > 0 && (
+              <>
+                <div className="cb cb-tight">
+                  <div className="toolbar">
+                    <button type="button" className="secondary" onClick={() => selectTopPerCompany(1)}>
+                      Pick 1 per company
+                    </button>
+                    <button type="button" className="secondary" onClick={() => selectTopPerCompany(2)}>
+                      Pick 2 per company
+                    </button>
+                    <button type="button" className="link-button" onClick={picked.clear}>
+                      Clear
+                    </button>
+                    <input
+                      type="text"
+                      className="filter-input"
+                      value={filter}
+                      onChange={(e) => setFilter(e.target.value)}
+                      placeholder="Filter by name, title or company"
+                      aria-label="Filter contacts"
+                    />
+                  </div>
+                  {filter &&
+                    picked.size > visibleContacts.filter((c) => picked.has(c.index)).length && (
+                      <p className="muted small-note">
+                        Some selected contacts are hidden by the filter — they are still included.
+                      </p>
+                    )}
+                </div>
 
-        <button type="submit" className="primary" disabled={starting || running || !ready}>
-          {starting
-            ? "Starting…"
-            : running
-              ? "Writing…"
-              : `Write ${selected.length || ""} message${selected.length === 1 ? "" : "s"}`}
-        </button>
-        {!ready && <p className="muted small-note">Finish the steps above first.</p>}
-      </form>
+                <div className="tw">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th className="tick" />
+                        <th>Contact</th>
+                        <th>Title</th>
+                        <th>Company</th>
+                        <th>Reachable by</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleContacts.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="muted">
+                            No contact matches “{filter}”.
+                          </td>
+                        </tr>
+                      )}
+                      {visibleContacts.map(({ companyName, contact, index }) => (
+                        <tr
+                          className="pick"
+                          key={`${companyName}-${contact.full_name}-${index}`}
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={picked.has(index)}
+                              onChange={() => picked.toggle(index)}
+                              aria-label={`Select ${contact.full_name}`}
+                            />
+                          </td>
+                          <td>
+                            <strong>{contact.full_name}</strong>
+                          </td>
+                          <td>{contact.title || <span className="muted">—</span>}</td>
+                          <td>{companyName}</td>
+                          <td>
+                            {contact.email && <span className="badge">email</span>}{" "}
+                            {contact.linkedin_url && <span className="badge">LinkedIn</span>}
+                            {!contact.email && !contact.linkedin_url && (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+        </form>
+
+        <div className="rail">
+          <section className="card2">
+            <header>
+              <h2>Before you run</h2>
+            </header>
+            <div className="cb">
+              <div className="rail-big">
+                {picked.size}
+                <span>{picked.size === 1 ? "contact" : "contacts"}</span>
+              </div>
+              <p className="muted small-note">1 model call each</p>
+              <div className="rail-row">
+                <span className="k">Channel</span>
+                <span>{channelSpec?.label || channel}</span>
+              </div>
+              <div className="rail-row">
+                <span className="k">Per-company reason</span>
+                <span>{matchJobId ? "yes" : "no"}</span>
+              </div>
+              <button
+                type="submit"
+                form="messages-form"
+                className="primary"
+                disabled={starting || running || !ready}
+              >
+                {starting
+                  ? "Starting…"
+                  : running
+                    ? "Writing…"
+                    : `Write ${picked.size || ""} draft${picked.size === 1 ? "" : "s"}`}
+              </button>
+              {!ready && <p className="muted small-note">Finish the steps above first.</p>}
+              <p className="muted small-note">
+                Nothing is sent. Drafts stay here until you copy or export them.
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
 
       {job && (
-        <section className="enrich-results">
+        <section className="after">
           {job.notices?.length > 0 && (
             <ul className="message-warnings">
               {job.notices.map((notice, i) => (
@@ -374,7 +444,7 @@ export default function Messages() {
           <JobProgress job={job} label="Writing" />
 
           {job.status === "completed" && job.completed > 0 && (
-            <div className="next-step">
+            <div className="nextbar">
               <span>
                 {job.completed} draft{job.completed === 1 ? "" : "s"} ready. Read each one before
                 sending — they are drafts, not outbox items.

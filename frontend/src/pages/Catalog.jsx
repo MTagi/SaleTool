@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useAppStatus } from "../context/StatusContext";
@@ -61,9 +61,9 @@ function completeness(service) {
     service.target_company_size,
     service.keywords?.length,
   ].filter(Boolean).length;
-  if (filled >= 4) return { label: "Detailed", className: "tier-chip" };
-  if (filled >= 2) return { label: "Usable", className: "tier-chip" };
-  return { label: "Too thin", className: "tier-chip chip-warn" };
+  if (filled >= 4) return { label: "Detailed", className: "badge good" };
+  if (filled >= 2) return { label: "Usable", className: "badge" };
+  return { label: "Too thin", className: "badge bad" };
 }
 
 export default function Catalog() {
@@ -75,11 +75,7 @@ export default function Catalog() {
   const [notice, setNotice] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setServices(await api.listServices());
       // The workflow strip marks this step done from the catalog count.
@@ -87,7 +83,11 @@ export default function Catalog() {
     } catch (err) {
       setError(err.message || "Couldn't load the catalog.");
     }
-  }
+  }, [refreshStatus]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   function set(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -151,193 +151,235 @@ export default function Catalog() {
 
   return (
     <main className="container">
-      <div className="results-header">
-        <h1>Service catalog</h1>
-        <div className="actions">
+      <div className="page-head">
+        <div>
+          <h1>Your service catalog</h1>
+          <p className="lede">
+            Every company gets scored against these. Write them the way you would brief a new
+            salesperson: what the service does, who it is for, and what tells you a company needs it.
+          </p>
+        </div>
+        <div className="toolbar">
           <Link to="/matching">Match to companies</Link>
         </div>
       </div>
 
-      <p className="muted">
-        The services your company sells. Matching scores every prospect against these, so write them
-        the way you would brief a new salesperson — what the service does, who it is for, and what
-        tells you a company needs it.
-      </p>
-
       {error && <p className="error">{error}</p>}
       {notice && <p className="success">{notice}</p>}
 
-      <form onSubmit={handleSubmit}>
-        <fieldset>
-          <legend>{editingId ? "Edit service" : "New service"}</legend>
-
-          <div className="row">
-            <label>
-              Name
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="ERP implementation"
-              />
-            </label>
-            <label>
-              Category (optional)
-              <input
-                type="text"
-                value={form.category}
-                onChange={(e) => set("category", e.target.value)}
-                placeholder="Consulting"
-              />
-            </label>
-          </div>
-
-          <label>
-            What it does — the problem it solves
-            <textarea
-              rows={3}
-              value={form.description}
-              onChange={(e) => set("description", e.target.value)}
-              placeholder="End-to-end SAP B1 rollout for manufacturers still running finance and inventory on spreadsheets."
-            />
-          </label>
-
-          <label>
-            Why buy it from you (optional)
-            <textarea
-              rows={2}
-              value={form.value_proposition}
-              onChange={(e) => set("value_proposition", e.target.value)}
-              placeholder="Go-live in 12 weeks with a fixed price; our team has done 40 rollouts in this industry."
-            />
-          </label>
-
-          <div className="row">
-            <label>
-              Target industries — comma separated
-              <input
-                type="text"
-                value={form.target_industries}
-                onChange={(e) => set("target_industries", e.target.value)}
-                placeholder="Manufacturing, Logistics, Retail"
-              />
-            </label>
-            <label>
-              Target company size
-              <input
-                type="text"
-                value={form.target_company_size}
-                onChange={(e) => set("target_company_size", e.target.value)}
-                placeholder="50-500 employees"
-              />
-            </label>
-          </div>
-
-          <label>
-            Buying signals — comma separated
-            <input
-              type="text"
-              value={form.keywords}
-              onChange={(e) => set("keywords", e.target.value)}
-              placeholder="opening new factory, hiring finance staff, legacy ERP, manual reporting"
-            />
-          </label>
-          <p className="muted small-note">
-            Facts about a company that suggest it needs this service. These do the most work in
-            scoring.
-          </p>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={form.active}
-              onChange={(e) => set("active", e.target.checked)}
-            />
-            Active — offer this service when matching
-          </label>
-        </fieldset>
-
-        <div className="actions">
-          <button type="submit" className="primary" disabled={saving}>
-            {saving ? "Saving…" : editingId ? "Save changes" : "Add service"}
-          </button>
-          {editingId && (
-            <button type="button" className="secondary" onClick={cancelEdit}>
-              Cancel
-            </button>
-          )}
-        </div>
-      </form>
-
-      <h2 className="section-heading">
-        Services {services ? `(${services.length})` : ""}
-      </h2>
-
-      {services === null && !error && <p className="muted">Loading…</p>}
-      {services?.length === 0 && (
-        <div className="empty-state">
-          <p>Nothing in the catalog yet.</p>
-          <p className="muted small">
-            Add your first service using the form above. Matching and message generation both read
-            from this list.
-          </p>
-        </div>
-      )}
-
-      {services?.map((service) => {
-        const quality = completeness(service);
-        return (
-          <div className="company-card" key={service.id}>
-            <div className="company-head">
-              <span className="company-name">
-                {service.name}
-                {!service.active && <span className="tier-chip chip-muted"> inactive</span>}
+      <div className="cols">
+        <div>
+          <section className="card2">
+            <header>
+              <h2>Services</h2>
+              <span className="hint">
+                {services
+                  ? `${services.length} total · ${services.filter((s) => s.active).length} offered when matching`
+                  : ""}
               </span>
-              <span className="company-meta">
-                {service.category && `${service.category} · `}
-                <span className={quality.className}>{quality.label}</span>
-              </span>
-            </div>
+            </header>
 
-            <div className="enrich-body">
-              {service.description && <p className="enrich-description">{service.description}</p>}
-              {service.value_proposition && (
-                <div className="enrich-detail">
-                  <span className="enrich-detail-label">Why buy</span>
-                  <span>{service.value_proposition}</span>
-                </div>
-              )}
-              {service.target_industries?.length > 0 && (
-                <div className="enrich-detail">
-                  <span className="enrich-detail-label">Industries</span>
-                  <span>{service.target_industries.join(", ")}</span>
-                </div>
-              )}
-              {service.target_company_size && (
-                <div className="enrich-detail">
-                  <span className="enrich-detail-label">Size</span>
-                  <span>{service.target_company_size}</span>
-                </div>
-              )}
-              {service.keywords?.length > 0 && (
-                <div className="enrich-detail">
-                  <span className="enrich-detail-label">Signals</span>
-                  <span>{service.keywords.join(", ")}</span>
-                </div>
-              )}
-
-              <div className="actions">
-                <button className="link-button" onClick={() => startEdit(service)}>
-                  Edit
-                </button>
-                <button className="link-button danger" onClick={() => handleDelete(service)}>
-                  Delete
-                </button>
+            {services === null && !error && <p className="muted cb">Loading…</p>}
+            {services?.length === 0 && (
+              <div className="empty-state">
+                <p>Nothing in the catalog yet.</p>
+                <p className="muted small">
+                  Add your first service below. Matching and message generation both read this list.
+                </p>
               </div>
+            )}
+
+            {services && services.length > 0 && (
+              <div className="tw">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Service</th>
+                      <th>Fits</th>
+                      <th>Signals</th>
+                      <th>Detail</th>
+                      <th>Offered</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {services.map((service) => {
+                      const quality = completeness(service);
+                      return (
+                        <tr
+                          className={editingId === service.id ? "pick open" : "pick"}
+                          key={service.id}
+                          style={service.active ? undefined : { opacity: 0.55 }}
+                        >
+                          <td>
+                            <strong>{service.name}</strong>
+                            {service.category && <span className="badge"> {service.category}</span>}
+                            {service.description && <div className="sub">{service.description}</div>}
+                          </td>
+                          <td>
+                            {service.target_industries?.length > 0 ? (
+                              service.target_industries.join(", ")
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                            {service.target_company_size && (
+                              <div className="sub">{service.target_company_size}</div>
+                            )}
+                          </td>
+                          <td className="num">{service.keywords?.length || 0}</td>
+                          <td>
+                            <span className={quality.className}>{quality.label}</span>
+                          </td>
+                          <td>{service.active ? <span className="badge on">yes</span> : <span className="badge">no</span>}</td>
+                          <td className="nowrap">
+                            <button className="link-button" onClick={() => startEdit(service)}>
+                              Edit
+                            </button>{" "}
+                            <button className="link-button danger" onClick={() => handleDelete(service)}>
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <form onSubmit={handleSubmit}>
+            <section className="card2">
+              <header>
+                <h2>{editingId ? "Edit service" : "Add a service"}</h2>
+              </header>
+              <div className="cb">
+                <div className="g2">
+                  <label>
+                    Name
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(e) => set("name", e.target.value)}
+                      placeholder="ERP implementation"
+                    />
+                  </label>
+                  <label>
+                    Category <span className="muted">— optional</span>
+                    <input
+                      type="text"
+                      value={form.category}
+                      onChange={(e) => set("category", e.target.value)}
+                      placeholder="Consulting"
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  What it does — the problem it solves
+                  <textarea
+                    rows={3}
+                    value={form.description}
+                    onChange={(e) => set("description", e.target.value)}
+                    placeholder="End-to-end SAP B1 rollout for manufacturers still running finance and inventory on spreadsheets."
+                  />
+                </label>
+
+                <label>
+                  Why buy it from you <span className="muted">— optional</span>
+                  <textarea
+                    rows={2}
+                    value={form.value_proposition}
+                    onChange={(e) => set("value_proposition", e.target.value)}
+                    placeholder="Go-live in 12 weeks with a fixed price; our team has done 40 rollouts in this industry."
+                  />
+                </label>
+
+                <div className="g2">
+                  <label>
+                    Target industries — comma separated
+                    <input
+                      type="text"
+                      value={form.target_industries}
+                      onChange={(e) => set("target_industries", e.target.value)}
+                      placeholder="Manufacturing, Logistics, Retail"
+                    />
+                  </label>
+                  <label>
+                    Target company size
+                    <input
+                      type="text"
+                      value={form.target_company_size}
+                      onChange={(e) => set("target_company_size", e.target.value)}
+                      placeholder="50-500 employees"
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  Buying signals — comma separated
+                  <input
+                    type="text"
+                    value={form.keywords}
+                    onChange={(e) => set("keywords", e.target.value)}
+                    placeholder="opening new factory, hiring finance staff, legacy ERP, manual reporting"
+                  />
+                  <span className="muted small-note">
+                    Facts about a company that suggest it needs this service. These do the most work
+                    in scoring.
+                  </span>
+                </label>
+
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.active}
+                    onChange={(e) => set("active", e.target.checked)}
+                  />
+                  Offer this service when matching
+                </label>
+
+                <div className="toolbar form-actions">
+                  <button type="submit" className="primary" disabled={saving}>
+                    {saving ? "Saving…" : editingId ? "Save changes" : "Add service"}
+                  </button>
+                  {editingId && (
+                    <button type="button" className="secondary" onClick={cancelEdit}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          </form>
+        </div>
+
+        <div className="rail">
+          <section className="card2">
+            <header>
+              <h2>How scoring reads this</h2>
+            </header>
+            <div className="cb prose">
+              <p>
+                <strong>Buying signals</strong> do most of the work. A signal is something the
+                enrichment step could plausibly find on a website.
+              </p>
+              <p>
+                <strong>Industry and size</strong> act as a floor, not a veto. A strong signal
+                outside your target size still ranks.
+              </p>
+              <p>
+                <strong>Not offered</strong> keeps a service in the catalog but skips it, so a
+                seasonal offer need not be deleted.
+              </p>
             </div>
-          </div>
-        );
-      })}
+          </section>
+          <p className="muted small-note">
+            The <strong>Detail</strong> column is a rough check on how much the model has to work
+            with. A service with only a name gets scored on only a name.
+          </p>
+        </div>
+      </div>
     </main>
   );
 }

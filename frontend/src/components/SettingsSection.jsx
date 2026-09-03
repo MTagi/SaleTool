@@ -1,22 +1,21 @@
 /**
- * A collapsible settings group.
+ * One settings group, as a card.
  *
- * The settings page is five long sections in one form; most visits only touch
- * one of them. Collapsing the rest turns a page you have to scan into a list you
- * can read. `<details>` handles the open/close state natively, so this keeps
- * working with keyboard and find-in-page.
- *
- * `summary` is a short status line (e.g. "OpenRouter · key saved") so you can
- * see what a section holds without opening it.
+ * These used to be <details> that collapsed, on the reasoning that most visits
+ * only touch one section. The wireframe reverses that: with every section open
+ * you can see the whole configuration at once, and the Readiness panel beside
+ * them is what stops the page from becoming a scroll hunt. `summary` stays — a
+ * short status line ("OpenRouter · key saved") next to the title, so a section
+ * still says what it holds without reading its fields.
  */
-export default function SettingsSection({ title, summary, defaultOpen = false, children }) {
+export default function SettingsSection({ title, summary, children }) {
   return (
-    <details className="settings-section" open={defaultOpen}>
-      <summary>
-        <span className="settings-section-title">{title}</span>
-        {summary && <span className="settings-section-summary">{summary}</span>}
-      </summary>
-      <div className="settings-section-body">{children}</div>
-    </details>
+    <section className="card2">
+      <header>
+        <h2>{title}</h2>
+        {summary && <span className="hint">{summary}</span>}
+      </header>
+      <div className="cb">{children}</div>
+    </section>
   );
 }

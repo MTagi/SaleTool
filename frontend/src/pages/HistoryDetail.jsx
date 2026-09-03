@@ -19,9 +19,9 @@ export default function HistoryDetail() {
 
   return (
     <main className="container">
-      <div className="results-header">
+      <div className="page-head">
         <h1>Result (history)</h1>
-        <div className="actions">
+        <div className="toolbar">
           <Link to="/history">← History</Link>
           <Link to="/">New search</Link>
         </div>

@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { copyText } from "../lib/clipboard";
-
-/** Subject and body as one block, the way it gets pasted into a mail client. */
-export function messageToText(message) {
-  return message.subject ? `${message.subject}\n\n${message.body}` : message.body;
-}
+import { messageToText } from "../lib/message";
 
 /**
  * One generated message, ready to copy out.
@@ -47,7 +43,7 @@ export default function MessageCard({ message }) {
           <span className="muted small"> · {message.company_name}</span>
         </span>
         <span className="company-meta">
-          {message.service_name && <span className="tier-chip">{message.service_name}</span>}{" "}
+          {message.service_name && <span className="badge on">{message.service_name}</span>}{" "}
           <span className="muted small">
             {message.body_words} words · {message.body_chars} chars
           </span>
@@ -82,7 +78,7 @@ export default function MessageCard({ message }) {
           </div>
         )}
 
-        <div className="actions">
+        <div className="toolbar">
           <button className="secondary" onClick={copy} type="button">
             {copyState === "ok" ? "Copied" : "Copy"}
           </button>

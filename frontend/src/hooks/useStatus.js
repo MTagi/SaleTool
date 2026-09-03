@@ -24,17 +24,11 @@ export function useStatus() {
       .finally(() => setLoading(false));
   }, []);
 
+  // refresh giữ nguyên tham chiếu (useCallback []) nên effect này chỉ chạy
+  // một lần — không cần bản sao thứ hai của cùng đoạn fetch.
   useEffect(() => {
-    let cancelled = false;
-    api
-      .getStatus()
-      .then((data) => !cancelled && setStatus(data))
-      .catch(() => !cancelled && setStatus(null))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    refresh();
+  }, [refresh]);
 
   return { status, loading, refresh };
 }

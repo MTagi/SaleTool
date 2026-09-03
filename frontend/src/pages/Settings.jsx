@@ -1,63 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import SettingsSection from "../components/SettingsSection";
+import CrawlingSection from "../components/settings/CrawlingSection";
+import DataSourceSection from "../components/settings/DataSourceSection";
+import EnrichmentSourcesSection from "../components/settings/EnrichmentSourcesSection";
+import LlmSection from "../components/settings/LlmSection";
+import SenderSection from "../components/settings/SenderSection";
+import WebSearchSection from "../components/settings/WebSearchSection";
 import { useAppStatus } from "../context/StatusContext";
+import { toSavePayload } from "../lib/settings";
 
-// Sentinel the backend understands as "keep the stored key unchanged".
-const MASKED_SECRET = "__SALETOOL_UNCHANGED__";
-
-const DATA_PROVIDER_LABELS = {
-  apollo: "Apollo.io — company + contact records, official API",
-};
-
-const SEARCH_PROVIDER_LABELS = {
-  none: "None — read the company's own website only (free)",
-  searxng: "SearXNG — self-hosted, no API key, unlimited (free)",
-  brave: "Brave Search API — paid, ~$5 per 1,000 queries",
-  tavily: "Tavily — paid, LLM-optimised results",
-  serper: "Serper — cheapest, but scrapes Google SERPs (ToS risk)",
-};
-
-const MODEL_SUGGESTIONS = [
-  "google/gemini-2.0-flash-001",
-  "google/gemini-2.5-flash",
-  "meta-llama/llama-3.3-70b-instruct",
-  "qwen/qwen-2.5-72b-instruct",
-  "openai/gpt-4o-mini",
-];
-
-function TestButton({ target, label }) {
-  const [state, setState] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    setState(null);
-    try {
-      const result = await api.testConnection(target);
-      setState(result);
-    } catch (err) {
-      setState({ ok: false, message: err.message });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="test-row">
-      <button type="button" className="secondary" onClick={run} disabled={busy}>
-        {busy ? "Testing…" : label}
-      </button>
-      {state && (
-        <span className={state.ok ? "test-ok" : "test-fail"}>
-          {state.ok ? "✓" : "✕"} {state.message}
-          {state.detail ? ` — ${state.detail}` : ""}
-        </span>
-      )}
-    </div>
-  );
-}
-
+/**
+ * Cấu hình dùng chung cho cả hệ thống.
+ *
+ * Trang này chỉ còn ba việc: nạp settings, lưu settings, và xếp các mục ra màn
+ * hình. Mỗi mục là một component riêng trong `components/settings/` — nó tự
+ * dựng dòng tóm tắt của chính nó, nên tóm tắt không bao giờ lệch với các trường
+ * nó mô tả, và mỗi mục chỉ chạm được vào lát cắt settings của mình.
+ */
 export default function Settings() {
   const { status, refresh: refreshStatus } = useAppStatus();
   const [settings, setSettings] = useState(null);
@@ -76,8 +35,9 @@ export default function Settings() {
       .catch((err) => setError(err.message || "Couldn't load settings."));
   }, []);
 
-  function updateSection(section, key, value) {
-    setSettings((s) => ({ ...s, [section]: { ...s[section], [key]: value } }));
+  /** Trộn một patch vào đúng một mục. Mỗi section chỉ được đưa hàm của mục nó. */
+  function patchSection(name, patch) {
+    setSettings((current) => ({ ...current, [name]: { ...current[name], ...patch } }));
   }
 
   async function handleSubmit(e) {
@@ -87,33 +47,11 @@ export default function Settings() {
     setSaving(true);
 
     try {
-      // Only send a key when the user actually typed a new one; otherwise tell
-      // the backend to keep what it already has.
-      const payload = {
-        ...settings,
-        data_source: {
-          ...settings.data_source,
-          api_key: settings.data_source.api_key_dirty
-            ? settings.data_source.api_key
-            : MASKED_SECRET,
-        },
-        llm: { ...settings.llm, api_key: settings.llm.api_key_dirty ? settings.llm.api_key : MASKED_SECRET },
-        search: {
-          ...settings.search,
-          api_key: settings.search.api_key_dirty ? settings.search.api_key : MASKED_SECRET,
-        },
-      };
-      delete payload.data_source.api_key_dirty;
-      delete payload.data_source.api_key_set;
-      delete payload.llm.api_key_dirty;
-      delete payload.llm.api_key_set;
-      delete payload.search.api_key_dirty;
-      delete payload.search.api_key_set;
-
-      const saved = await api.saveSettings(payload);
+      const saved = await api.saveSettings(toSavePayload(settings));
       setSettings(saved.settings);
       setSuccess("Settings saved.");
-      // Adding the LLM key or the sender profile unblocks later steps.
+      // Thêm LLM key hoặc sender profile là mở khoá các bước sau — dải 5 bước
+      // và các banner điều kiện phải biết ngay.
       refreshStatus();
     } catch (err) {
       setError(err.message || "Couldn't save settings.");
@@ -122,520 +60,123 @@ export default function Settings() {
     }
   }
 
-  if (error && !settings) {
-    return (
-      <main className="container">
-        <h1>Settings</h1>
-        <p className="error">{error}</p>
-      </main>
-    );
-  }
-
   if (!settings) {
     return (
       <main className="container">
         <h1>Settings</h1>
-        <p className="muted">Loading…</p>
+        {error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}
       </main>
     );
   }
 
-  const searchNeedsKey = (options?.search_providers_requiring_key || []).includes(
-    settings.search.provider,
-  );
-
-  // Short status lines so each collapsed section still says what it holds.
-  const dataSourceSummary = [
-    DATA_PROVIDER_LABELS[settings.data_source.provider] || settings.data_source.provider,
-    settings.data_source.api_key_set ? "key saved" : "no key — search is blocked",
-  ].join(" · ");
-  const llmSummary = [
-    settings.llm.model || settings.llm.provider,
-    settings.llm.api_key_set ? "key saved" : "no key",
-  ].join(" · ");
-  const searchSummary =
-    settings.search.provider === "none"
-      ? "Off — company websites only"
-      : `${settings.search.provider}${settings.search.api_key_set ? " · key saved" : ""}`;
-  const senderSummary = settings.sender.full_name
-    ? [settings.sender.full_name, settings.sender.company_name].filter(Boolean).join(" · ")
-    : "Not set — required for messages";
-  const enrichSummary = [
-    settings.enrichment.use_company_website && "website",
-    settings.enrichment.use_web_search && "web search",
-    settings.enrichment.use_llm && "LLM",
-  ]
-    .filter(Boolean)
-    .join(" + ") || "all sources off";
-
   return (
     <main className="container">
       <h1>Settings</h1>
-      <p className="muted">
-        Applies to everyone using this instance. API keys are encrypted before they are stored and are
-        never sent back to the browser.
+      <p className="lede">
+        Applies to everyone using this instance. API keys are encrypted before they are stored and
+        are never sent back to the browser.
       </p>
 
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
 
-      <form onSubmit={handleSubmit}>
-        <SettingsSection
-          title="Data source"
-          summary={dataSourceSummary}
-          defaultOpen={!status || !status.data_source_configured}
-        >
-          <p className="muted small-note">
-            Where company and contact records come from in step 1. Searching is blocked until this
-            provider has a key.
-          </p>
+      <div className="cols">
+        <form id="settings-form" onSubmit={handleSubmit}>
+          <DataSourceSection
+            value={settings.data_source}
+            options={options}
+            onChange={(patch) => patchSection("data_source", patch)}
+          />
+          <LlmSection
+            value={settings.llm}
+            options={options}
+            onChange={(patch) => patchSection("llm", patch)}
+          />
+          <WebSearchSection
+            value={settings.search}
+            options={options}
+            onChange={(patch) => patchSection("search", patch)}
+          />
+          <SenderSection
+            value={settings.sender}
+            onChange={(patch) => patchSection("sender", patch)}
+          />
+          <EnrichmentSourcesSection
+            value={settings.enrichment}
+            onChange={(patch) => patchSection("enrichment", patch)}
+          />
+          <CrawlingSection
+            value={settings.enrichment}
+            onChange={(patch) => patchSection("enrichment", patch)}
+          />
+        </form>
 
-          <label>
-            Provider
-            <select
-              value={settings.data_source.provider}
-              onChange={(e) => updateSection("data_source", "provider", e.target.value)}
-            >
-              {(options?.data_providers || []).map((p) => (
-                <option key={p} value={p}>
-                  {DATA_PROVIDER_LABELS[p] || p}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="rail">
+          <ReadinessPanel settings={settings} status={status} />
 
-          <label>
-            API key{" "}
-            {settings.data_source.api_key_set && !settings.data_source.api_key_dirty && (
-              <em>(saved)</em>
-            )}
-            <input
-              type="password"
-              autoComplete="off"
-              value={settings.data_source.api_key_dirty ? settings.data_source.api_key : ""}
-              onChange={(e) =>
-                setSettings((s) => ({
-                  ...s,
-                  data_source: { ...s.data_source, api_key: e.target.value, api_key_dirty: true },
-                }))
-              }
-            />
-          </label>
+          <button type="submit" form="settings-form" className="primary" disabled={saving}>
+            {saving ? "Saving…" : "Save settings"}
+          </button>
 
-          <TestButton target="data_source" label="Test data source" />
-        </SettingsSection>
-
-        <SettingsSection
-          title="Language model"
-          summary={llmSummary}
-          defaultOpen={!status || !status.llm_configured}
-        >
-          <p className="muted small-note">
-            Used to pull out details that plain parsing can't — mainly descriptions and leadership names.
-          </p>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.llm.enabled}
-              onChange={(e) => updateSection("llm", "enabled", e.target.checked)}
-            />
-            Enable LLM extraction
-          </label>
-
-          <label>
-            Provider
-            <select
-              value={settings.llm.provider}
-              onChange={(e) => updateSection("llm", "provider", e.target.value)}
-            >
-              {(options?.llm_providers || []).map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            API base URL
-            <input
-              type="text"
-              value={settings.llm.base_url}
-              onChange={(e) => updateSection("llm", "base_url", e.target.value)}
-            />
-          </label>
-
-          <label>
-            API key {settings.llm.api_key_set && !settings.llm.api_key_dirty && <em>(saved)</em>}
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder={settings.llm.api_key_set ? settings.llm.api_key : "sk-or-v1-…"}
-              value={settings.llm.api_key_dirty ? settings.llm.api_key : ""}
-              onChange={(e) => {
-                setSettings((s) => ({
-                  ...s,
-                  llm: { ...s.llm, api_key: e.target.value, api_key_dirty: true },
-                }));
-              }}
-            />
-          </label>
-
-          <label>
-            Model
-            <input
-              type="text"
-              list="model-suggestions"
-              value={settings.llm.model}
-              onChange={(e) => updateSection("llm", "model", e.target.value)}
-            />
-          </label>
-          <datalist id="model-suggestions">
-            {MODEL_SUGGESTIONS.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-          <p className="muted small-note">
-            Pick a model that supports structured outputs. Extraction from cleaned text is an easy task —
-            a small, cheap model is enough.
-          </p>
-
-          <div className="row">
-            <label>
-              Temperature
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                value={settings.llm.temperature}
-                onChange={(e) => updateSection("llm", "temperature", parseFloat(e.target.value) || 0)}
-              />
-            </label>
-            <label>
-              Max output tokens
-              <input
-                type="number"
-                min="1"
-                value={settings.llm.max_output_tokens}
-                onChange={(e) =>
-                  updateSection("llm", "max_output_tokens", parseInt(e.target.value, 10) || 1)
-                }
-              />
-            </label>
-          </div>
-
-          <TestButton target="llm" label="Test LLM connection" />
-        </SettingsSection>
-
-        <SettingsSection title="Web search" summary={searchSummary}>
-          <p className="muted small-note">
-            Only needed to find pages <em>other than</em> the company's own site. Reading the company
-            website itself uses its sitemap and needs no search provider.
-          </p>
-
-          <label>
-            Provider
-            <select
-              value={settings.search.provider}
-              onChange={(e) => updateSection("search", "provider", e.target.value)}
-            >
-              {(options?.search_providers || []).map((p) => (
-                <option key={p} value={p}>
-                  {SEARCH_PROVIDER_LABELS[p] || p}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {settings.search.provider === "searxng" && (
-            <label>
-              SearXNG instance URL
-              <input
-                type="text"
-                placeholder="http://localhost:8080"
-                value={settings.search.searxng_url || ""}
-                onChange={(e) => updateSection("search", "searxng_url", e.target.value)}
-              />
-            </label>
+          {settings.updated_at && (
+            <p className="muted small-note">
+              Last updated {new Date(settings.updated_at).toLocaleString()}
+              {settings.updated_by ? ` by ${settings.updated_by}` : ""}.
+            </p>
           )}
-
-          {searchNeedsKey && (
-            <label>
-              API key {settings.search.api_key_set && !settings.search.api_key_dirty && <em>(saved)</em>}
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder={settings.search.api_key_set ? settings.search.api_key : "API key"}
-                value={settings.search.api_key_dirty ? settings.search.api_key : ""}
-                onChange={(e) =>
-                  setSettings((s) => ({
-                    ...s,
-                    search: { ...s.search, api_key: e.target.value, api_key_dirty: true },
-                  }))
-                }
-              />
-            </label>
-          )}
-
-          {settings.search.provider !== "none" && (
-            <label>
-              Max results per query
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={settings.search.max_results}
-                onChange={(e) =>
-                  updateSection("search", "max_results", parseInt(e.target.value, 10) || 1)
-                }
-              />
-            </label>
-          )}
-
-          {settings.search.provider !== "none" && (
-            <TestButton target="search" label="Test search connection" />
-          )}
-        </SettingsSection>
-
-        <SettingsSection
-          title="Sender profile"
-          summary={senderSummary}
-          defaultOpen={Boolean(status) && status.llm_configured && !status.sender_configured}
-        >
-          <p className="muted small-note">
-            Who the generated messages come from. Without at least a name and company, message
-            generation is blocked — a message needs a sender, and the model must not invent one.
-          </p>
-
-          <div className="row">
-            <label>
-              Your name
-              <input
-                type="text"
-                value={settings.sender.full_name}
-                onChange={(e) => updateSection("sender", "full_name", e.target.value)}
-                placeholder="Tran Van A"
-              />
-            </label>
-            <label>
-              Your title
-              <input
-                type="text"
-                value={settings.sender.title}
-                onChange={(e) => updateSection("sender", "title", e.target.value)}
-                placeholder="Head of Sales"
-              />
-            </label>
-          </div>
-
-          <label>
-            Your company
-            <input
-              type="text"
-              value={settings.sender.company_name}
-              onChange={(e) => updateSection("sender", "company_name", e.target.value)}
-              placeholder="ABIM"
-            />
-          </label>
-
-          <label>
-            What your company does — one or two sentences
-            <textarea
-              rows={2}
-              value={settings.sender.company_description}
-              onChange={(e) => updateSection("sender", "company_description", e.target.value)}
-              placeholder="We build and run ERP and data platforms for mid-size Vietnamese manufacturers."
-            />
-          </label>
-
-          <div className="row">
-            <label>
-              Reply-to email
-              <input
-                type="text"
-                value={settings.sender.email}
-                onChange={(e) => updateSection("sender", "email", e.target.value)}
-                placeholder="a.tran@abim.vn"
-              />
-            </label>
-            <label>
-              Phone
-              <input
-                type="text"
-                value={settings.sender.phone}
-                onChange={(e) => updateSection("sender", "phone", e.target.value)}
-                placeholder="+84 90 123 4567"
-              />
-            </label>
-          </div>
-
-          <label>
-            Booking link (optional)
-            <input
-              type="text"
-              value={settings.sender.calendar_link}
-              onChange={(e) => updateSection("sender", "calendar_link", e.target.value)}
-              placeholder="https://cal.com/a-tran/15min"
-            />
-          </label>
-
-          <label>
-            Sign-off (optional — inserted verbatim)
-            <textarea
-              rows={2}
-              value={settings.sender.signature}
-              onChange={(e) => updateSection("sender", "signature", e.target.value)}
-              placeholder={"Tran Van A\nHead of Sales, ABIM"}
-            />
-          </label>
-        </SettingsSection>
-
-        <SettingsSection title="Enrichment sources" summary={enrichSummary}>
-          <p className="muted small-note">
-            These run in order, cheapest and most reliable first. Anything found early is not overwritten
-            later.
-          </p>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.use_structured_data}
-              onChange={(e) => updateSection("enrichment", "use_structured_data", e.target.checked)}
-            />
-            Structured data — JSON-LD, meta tags, mailto/tel, regex (free, most accurate)
-          </label>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.use_company_website}
-              onChange={(e) => updateSection("enrichment", "use_company_website", e.target.checked)}
-            />
-            Company website — sitemap plus a shallow crawl (free)
-          </label>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.use_web_search}
-              onChange={(e) => updateSection("enrichment", "use_web_search", e.target.checked)}
-            />
-            Web search — pages about the company elsewhere (needs a search provider)
-          </label>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.use_llm}
-              onChange={(e) => updateSection("enrichment", "use_llm", e.target.checked)}
-            />
-            LLM extraction — only for fields the steps above couldn't fill
-          </label>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.use_browser_fallback}
-              onChange={(e) => updateSection("enrichment", "use_browser_fallback", e.target.checked)}
-            />
-            Browser fallback — render JavaScript-heavy pages (much slower)
-          </label>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.auto_enrich_on_search}
-              onChange={(e) => updateSection("enrichment", "auto_enrich_on_search", e.target.checked)}
-            />
-            Auto-enrich — start enrichment automatically after every search
-          </label>
-        </SettingsSection>
-
-        <SettingsSection title="Crawling behaviour" summary="Politeness and limits">
-          <p className="muted small-note">
-            Staying polite is what keeps this step low-risk. Please don't turn these off.
-          </p>
-
-          <div className="row">
-            <label>
-              Max pages per company
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={settings.enrichment.max_pages_per_company}
-                onChange={(e) =>
-                  updateSection(
-                    "enrichment",
-                    "max_pages_per_company",
-                    parseInt(e.target.value, 10) || 1,
-                  )
-                }
-              />
-            </label>
-            <label>
-              Request timeout (seconds)
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={settings.enrichment.request_timeout_seconds}
-                onChange={(e) =>
-                  updateSection(
-                    "enrichment",
-                    "request_timeout_seconds",
-                    parseFloat(e.target.value) || 1,
-                  )
-                }
-              />
-            </label>
-          </div>
-
-          <label>
-            Delay between requests to the same site (seconds)
-            <input
-              type="number"
-              min="0"
-              step="0.5"
-              value={settings.enrichment.request_delay_seconds}
-              onChange={(e) =>
-                updateSection("enrichment", "request_delay_seconds", parseFloat(e.target.value) || 0)
-              }
-            />
-          </label>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.enrichment.respect_robots_txt}
-              onChange={(e) => updateSection("enrichment", "respect_robots_txt", e.target.checked)}
-            />
-            Respect robots.txt
-          </label>
-
-          <label>
-            User agent
-            <input
-              type="text"
-              value={settings.enrichment.user_agent}
-              onChange={(e) => updateSection("enrichment", "user_agent", e.target.value)}
-            />
-          </label>
-        </SettingsSection>
-
-        <button type="submit" className="primary" disabled={saving}>
-          {saving ? "Saving…" : "Save settings"}
-        </button>
-
-        {settings.updated_at && (
-          <p className="muted small">
-            Last updated {new Date(settings.updated_at).toLocaleString()}
-            {settings.updated_by ? ` by ${settings.updated_by}` : ""}.
-          </p>
-        )}
-      </form>
+        </div>
+      </div>
     </main>
+  );
+}
+
+/**
+ * Cùng bốn điều kiện mà dải 5 bước ở trên đang kiểm, đọc từ cùng một nguồn
+ * (`/api/status` + settings vừa lưu) — nên hai chỗ không bao giờ nói khác nhau.
+ */
+function ReadinessPanel({ settings, status }) {
+  const items = [
+    {
+      label: "Provider key",
+      why: "Search needs it",
+      ok: Boolean(settings.data_source.api_key_set),
+    },
+    {
+      label: "Model key",
+      why: "Match and Message need it",
+      ok: Boolean(settings.llm.api_key_set),
+    },
+    {
+      label: "Sender profile",
+      why: "Message needs a name to sign off with",
+      ok: Boolean(status?.sender_configured),
+    },
+    {
+      label: "Catalog",
+      why: "Match scores companies against these",
+      ok: (status?.counts?.active_services ?? 0) > 0,
+      value: status ? `${status.counts.active_services} active` : undefined,
+    },
+  ];
+
+  return (
+    <section className="card2">
+      <header>
+        <h2>Readiness</h2>
+      </header>
+      <div className="cb flush">
+        {items.map((item) => (
+          <div className="readiness-row" key={item.label}>
+            <div>
+              <strong>{item.label}</strong>
+              <div className="sub">{item.why}</div>
+            </div>
+            <span className={item.ok ? "badge good" : "badge bad"}>
+              {item.ok ? item.value || "done" : item.value || "missing"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

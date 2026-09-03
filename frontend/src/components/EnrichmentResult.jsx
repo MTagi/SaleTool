@@ -27,7 +27,7 @@ function LinkList({ label, items, hrefPrefix = "" }) {
   );
 }
 
-export function EnrichmentResult({ result }) {
+export default function EnrichmentResult({ result }) {
   const [showSources, setShowSources] = useState(false);
 
   const socials = Object.entries(result.social_links || {});

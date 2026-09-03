@@ -3,12 +3,23 @@ import { api } from "../api/client";
 
 const POLL_INTERVAL_MS = 2000;
 
+// Trạng thái backend trả về; chỉ hai giá trị này là "chưa xong".
+const ACTIVE_STATUSES = ["pending", "running"];
+
+/** Job còn đang chạy? Dùng chung cho cả vòng poll lẫn nút submit của trang. */
+export function isJobRunning(job) {
+  return Boolean(job) && ACTIVE_STATUSES.includes(job.status);
+}
+
 /**
  * Polls a background job until it reaches a terminal state.
  * Pass a falsy jobId to disable polling entirely.
  *
  * `fetchJob` takes the job id and resolves to the job payload — enrichment and
  * matching jobs share the same status/progress shape, so they share this hook.
+ *
+ * Trả về `running` sẵn để trang không phải tự so chuỗi trạng thái — ba trang đều
+ * cần đúng điều kiện đó để khoá nút submit.
  */
 export function useJob(jobId, fetchJob) {
   const [job, setJob] = useState(null);
@@ -29,7 +40,7 @@ export function useJob(jobId, fetchJob) {
         if (cancelled) return;
 
         setJob(data);
-        if (data.status === "pending" || data.status === "running") {
+        if (isJobRunning(data)) {
           timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
         }
       } catch (err) {
@@ -48,7 +59,7 @@ export function useJob(jobId, fetchJob) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
-  return { job, error };
+  return { job, error, running: isJobRunning(job) };
 }
 
 export function useEnrichJob(jobId) {

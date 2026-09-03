@@ -16,10 +16,18 @@ export default function History() {
 
   return (
     <main className="container">
-      <div className="results-header">
-        <h1>Search history</h1>
-        <div className="actions">
-          <Link to="/">New search</Link>
+      <div className="page-head">
+        <div>
+          <h1>Search history</h1>
+          <p className="lede">
+            Every search is kept with its criteria and results. Enrich, ranking and message runs all
+            start from one of these.
+          </p>
+        </div>
+        <div className="toolbar">
+          <Link className="button-link" to="/">
+            New search
+          </Link>
         </div>
       </div>
 
@@ -34,17 +42,42 @@ export default function History() {
         </div>
       )}
 
-      {runs?.map((run) => (
-        <Link className="history-row" to={`/history/${run.id}`} key={run.id}>
-          <div className="history-row-main">
-            <span className="history-criteria">{formatCriteria(run.criteria)}</span>
-            <span className="muted small">
-              {run.total_companies} companies · {run.total_contacts} contacts · provider: {run.provider}
-            </span>
+      {runs && runs.length > 0 && (
+        <section className="card2">
+          <div className="tw">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Criteria</th>
+                  <th>Source</th>
+                  <th>Companies</th>
+                  <th>Contacts</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr className="pick" key={run.id}>
+                    <td className="nowrap">
+                      <strong>{formatDate(run.created_at)}</strong>
+                    </td>
+                    <td>{formatCriteria(run.criteria)}</td>
+                    <td>
+                      <span className="badge">{run.provider}</span>
+                    </td>
+                    <td className="num">{run.total_companies}</td>
+                    <td className="num">{run.total_contacts}</td>
+                    <td>
+                      <Link to={`/history/${run.id}`}>Open</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <span className="muted small history-date">{formatDate(run.created_at)}</span>
-        </Link>
-      ))}
+        </section>
+      )}
     </main>
   );
 }

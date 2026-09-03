@@ -17,9 +17,9 @@ export default function Results() {
 
   return (
     <main className="container">
-      <div className="results-header">
+      <div className="page-head">
         <h1>Results</h1>
-        <div className="actions">
+        <div className="toolbar">
           <Link to="/">New search</Link>
           <Link to="/history">History</Link>
           <Link to="/enrichment">Enrichment</Link>
