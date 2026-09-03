@@ -3,12 +3,16 @@ import NumberField from "./NumberField";
 import SecretField from "./SecretField";
 import TestButton from "./TestButton";
 
+// Nhãn nói thẳng tình trạng free tier (tra lại 09/2026), vì đó là thứ quyết
+// định chọn cái nào — không phải chất lượng kết quả. Thứ tự dropdown do
+// models.py::SEARCH_PROVIDERS quyết định, đã xếp cái đáng chọn lên trước.
 const PROVIDER_LABELS = {
   none: "None — read the company's own website only (free)",
-  searxng: "SearXNG — self-hosted, no API key, unlimited (free)",
-  brave: "Brave Search API — paid, ~$5 per 1,000 queries",
-  tavily: "Tavily — paid, LLM-optimised results",
-  serper: "Serper — cheapest, but scrapes Google SERPs (ToS risk)",
+  tavily: "Tavily — 1,000 searches/month free, no card needed",
+  exa: "Exa — 1,000 searches/month free, no card needed",
+  searxng: "SearXNG — self-hosted, free, but engines block it more often now",
+  serper: "Serper — 2,500 free once, then paid; scrapes Google SERPs (ToS risk)",
+  brave: "Brave — no free tier since Feb 2026; card required, no spending cap",
 };
 
 /**

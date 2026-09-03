@@ -1,11 +1,21 @@
-"""Các implementation SearchProvider: 1 lựa chọn free tự host + 3 lựa chọn trả phí.
+"""Các implementation SearchProvider.
+
+Tình trạng free tier, tra lại 09/2026 — đây là thứ quyết định nên chọn cái nào:
 
 - `none`    : không dùng web search (chỉ đọc website công ty) — mặc định
-- `searxng` : meta-search tự host, KHÔNG cần API key, không giới hạn query
-- `brave`   : Brave Search API (đã bỏ free tier từ 02/2026, tính tiền theo request)
-- `tavily`  : tối ưu cho LLM, trả sẵn nội dung đã làm sạch
-- `serper`  : rẻ nhất nhưng là scrape SERP Google — có rủi ro ToS, xem
-              docs/research/linkedin-company-search/05-phap-ly-tuan-thu.md
+- `tavily`  : **1.000 credit/tháng, lặp lại, không cần thẻ.** Search cơ bản 1
+              credit. Lựa chọn free thật đáng dùng nhất hiện nay
+- `exa`     : **1.000 request/tháng, lặp lại, không cần thẻ.** Cộng với Tavily
+              là ~2.000 query/tháng miễn phí
+- `serper`  : 2.500 credit **một lần duy nhất** (hết hạn sau 6 tháng), không
+              phải free tier hàng tháng. Và nó scrape SERP Google — rủi ro ToS,
+              xem docs/research/linkedin-company-search/05-phap-ly-tuan-thu.md
+- `searxng` : meta-search tự host, không cần key, không giới hạn query. Nhưng
+              từ 2026 Google chặn tích cực các instance SearXNG (instance đứng
+              ra proxy cho bot nên bị coi là bot) — cần ghim engine sang
+              DuckDuckGo/Mojeek/Brave thay vì để mặc định
+- `brave`   : **đã bỏ free tier 02/2026.** Giờ là credit trả trước, bắt buộc
+              gắn thẻ và KHÔNG có trần chi tiêu. Tránh cho tool nội bộ
 """
 
 from __future__ import annotations
@@ -123,6 +133,48 @@ class TavilySearchProvider(SearchProvider):
             results.append(
                 SearchResult(url=url, title=item.get("title"), snippet=item.get("content"))
             )
+        return results
+
+
+class ExaSearchProvider(SearchProvider):
+    """Exa — 1.000 request/tháng miễn phí, không cần thẻ.
+
+    Cố tình KHÔNG gửi `contents`: Exa tính thêm tiền cho phần trích nội dung,
+    mà pipeline ở đây chỉ dùng `url` (xem discovery.py::discover_external_urls
+    — title/snippet không đi tới đâu cả). Trả nội dung về là trả tiền cho thứ
+    bị vứt đi ngay sau đó.
+
+    `type: fast` thay vì mặc định `auto`: ta chỉ cần danh sách URL của một công
+    ty cụ thể, không cần Exa suy luận sâu.
+    """
+
+    name = "exa"
+
+    def __init__(self, api_key: str):
+        if not api_key:
+            raise ValueError("Exa requires an API key.")
+        self.api_key = api_key
+
+    async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                "https://api.exa.ai/search",
+                json={"query": query, "numResults": max_results, "type": "fast"},
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+        resp.raise_for_status()
+
+        payload = resp.json()
+        results = []
+        for item in payload.get("results", [])[:max_results]:
+            url = item.get("url")
+            if not url:
+                continue
+            # Không xin `contents` nên không có snippet — đúng như dự tính.
+            results.append(SearchResult(url=url, title=item.get("title")))
         return results
 
 

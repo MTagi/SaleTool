@@ -310,8 +310,23 @@ trước khi lưu và không bao giờ trả về trình duyệt** — UI chỉ 
 
 - **LLM**: mặc định OpenRouter (API tương thích OpenAI). Chọn model hỗ trợ
   structured output; trích xuất từ text đã sạch là việc dễ nên model nhỏ, rẻ là đủ.
-- **Web search**: `none` (mặc định — chỉ đọc website công ty, hoàn toàn free),
-  `searxng` (tự host, free, không cần key), `brave` / `tavily` / `serper` (trả phí).
+- **Web search**: chỉ cần cho tầng 2 của enrichment (tìm trang *ngoài* website
+  công ty). Tình trạng free tier tra lại 09/2026:
+  - `none` — mặc định, chỉ đọc website công ty, hoàn toàn free
+  - `tavily` — **1.000 lượt/tháng free, không cần thẻ**. Đáng chọn nhất
+  - `exa` — **1.000 lượt/tháng free, không cần thẻ**. Dùng chung với Tavily
+    thì được ~2.000 lượt/tháng
+  - `searxng` — tự host, free, không cần key; nhưng từ 2026 các search engine
+    chặn instance SearXNG nhiều hơn hẳn, nên kém ổn định
+  - `serper` — 2.500 lượt free **một lần duy nhất** rồi trả tiền; scrape SERP
+    Google nên có rủi ro ToS
+  - `brave` — **đã bỏ free tier từ 02/2026**, bắt buộc gắn thẻ và không có trần
+    chi tiêu
+
+  Ước lượng cho quy mô tool này: mỗi công ty tốn 1–4 lượt search, và web search
+  chỉ dùng phần hạn ngạch *còn thừa* sau khi crawl website công ty — công ty có
+  domain và site nhiều trang thì không tốn lượt nào. 1.000 lượt/tháng đủ cho
+  khoảng 250–1.000 công ty.
 - **Sender profile**: bạn là ai khi gửi message (tên, chức danh, công ty, mô tả
   công ty, link đặt lịch, chữ ký). Thiếu tên + công ty thì bước Messages bị chặn —
   message không có người gửi thì LLM buộc phải bịa ra một người.
@@ -387,7 +402,7 @@ saletool/
     extractor.py              # HTML -> text sạch (trafilatura)
     structured.py              # tầng 0: JSON-LD, meta, mailto/tel, regex
     llm.py                      # prompt + schema trích xuất thông tin công ty
-    search/                      # SearchProvider: none/searxng/brave/tavily/serper
+    search/                      # SearchProvider: none/tavily/exa/searxng/serper/brave
   llm_api.py            # lớp gọi LLM dùng chung (json_schema -> json_object fallback)
   prompt_text.py        # cắt gọn text trước khi đưa vào prompt (dùng chung)
   matching/

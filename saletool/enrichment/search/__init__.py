@@ -1,6 +1,7 @@
 from saletool.enrichment.search.base import SearchProvider, SearchResult
 from saletool.enrichment.search.providers import (
     BraveSearchProvider,
+    ExaSearchProvider,
     NoSearchProvider,
     SearxngSearchProvider,
     SerperSearchProvider,
@@ -23,6 +24,8 @@ def get_search_provider(settings: SearchSettings) -> SearchProvider:
         return BraveSearchProvider(settings.api_key or "")
     if provider == "tavily":
         return TavilySearchProvider(settings.api_key or "")
+    if provider == "exa":
+        return ExaSearchProvider(settings.api_key or "")
     if provider == "serper":
         return SerperSearchProvider(settings.api_key or "")
 

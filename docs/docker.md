@@ -111,6 +111,11 @@ lại bằng `create-user`.
 docker compose --profile searxng up -d
 ```
 
+> Cân nhắc trước: từ 2026 các search engine chặn instance SearXNG nhiều hơn
+> hẳn (instance đứng ra proxy cho bot nên bị coi là bot). Nếu muốn ổn định
+> hơn mà vẫn free thì dùng `tavily` hoặc `exa` — mỗi cái 1.000 lượt/tháng,
+> không cần thẻ.
+
 Vào trang **Settings** → Web search = `searxng`, instance URL =
 **`http://searxng:8080`**. Đây là tên service trong mạng compose, **không phải**
 `127.0.0.1:8888` — cổng đó chỉ để bạn mở bằng trình duyệt từ host.

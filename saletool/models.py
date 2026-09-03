@@ -110,10 +110,13 @@ DATA_PROVIDERS = ["apollo"]
 DATA_PROVIDERS_REQUIRING_KEY = ["apollo"]
 
 # "none" = không dùng web search, chỉ đọc website của chính công ty.
-SEARCH_PROVIDERS = ["none", "searxng", "brave", "tavily", "serper"]
+# Thứ tự này là thứ tự hiện trên dropdown, và được xếp theo mức đáng chọn:
+# hai cái có free tier hàng tháng thật lên trước, brave xuống cuối vì đã bỏ
+# free tier và không có trần chi tiêu (chi tiết ở enrichment/search/providers.py).
+SEARCH_PROVIDERS = ["none", "tavily", "exa", "searxng", "serper", "brave"]
 
 # Provider nào cần API key, provider nào không — frontend dùng để hiện đúng ô nhập.
-SEARCH_PROVIDERS_REQUIRING_KEY = ["brave", "tavily", "serper"]
+SEARCH_PROVIDERS_REQUIRING_KEY = ["tavily", "exa", "serper", "brave"]
 
 MASKED_SECRET = "__SALETOOL_UNCHANGED__"
 """Giá trị frontend gửi lại khi người dùng KHÔNG sửa API key.
