@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 from saletool.crypto import decrypt, encrypt
+from saletool.clock import now_iso
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
@@ -94,7 +95,7 @@ class MongoSearchRunRepository(SearchRunRepository):
         results: list[CompanyResult],
     ) -> SearchRunSummary:
         run_id = str(uuid.uuid4())
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = now_iso()
         total_contacts = sum(len(r.contacts) for r in results)
 
         self._collection.insert_one(

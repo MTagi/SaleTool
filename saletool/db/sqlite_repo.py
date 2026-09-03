@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from saletool.crypto import decrypt, encrypt
+from saletool.clock import now_iso
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
@@ -116,7 +117,7 @@ class SQLiteSearchRunRepository(SearchRunRepository):
         results: list[CompanyResult],
     ) -> SearchRunSummary:
         run_id = str(uuid.uuid4())
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = now_iso()
         total_contacts = sum(len(r.contacts) for r in results)
 
         with sqlite3.connect(self.path) as conn:
@@ -156,7 +157,12 @@ class SQLiteSearchRunRepository(SearchRunRepository):
                 SELECT id, created_at, provider, criteria_json, total_companies, total_contacts
                 FROM search_runs
                 WHERE username = ?
-                ORDER BY created_at DESC
+                -- rowid là thứ tự chèn. Cần nó cho những dòng lưu TRƯỚC khi
+                -- saletool/clock.py ra đời: chúng vẫn có created_at trùng nhau,
+                -- và không có tiebreaker thì thứ tự do engine tự quyết.
+                -- An toàn vì bảng này không bao giờ bị xoá dòng, nên SQLite
+                -- không tái sử dụng rowid.
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT ?
                 """,
                 (username, limit),
@@ -199,7 +205,7 @@ class SQLiteSearchRunRepository(SearchRunRepository):
                        total_companies, total_contacts
                 FROM search_runs
                 WHERE username = ?
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, rowid DESC   -- xem chú thích ở list_runs
                 LIMIT 1
                 """,
                 (username,),
@@ -453,7 +459,7 @@ class _SQLiteJobRepository:
                 f"""
                 SELECT job_json FROM {self._table}
                 WHERE username = ?
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, rowid DESC   -- xem chú thích ở list_runs
                 LIMIT ?
                 """,
                 (username, limit),

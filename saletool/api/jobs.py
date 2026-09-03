@@ -15,8 +15,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 
+from saletool.clock import now_iso
 from saletool.db.factory import (
     get_enrich_job_repository,
     get_match_job_repository,
@@ -54,7 +54,8 @@ _semaphore = asyncio.Semaphore(2)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    """Mốc thời gian tăng nghiêm ngặt — list_jobs sắp xếp theo created_at."""
+    return now_iso()
 
 
 def _key(name: str) -> str:

@@ -107,3 +107,48 @@ def test_get_latest_run(run_repo):
 
 def test_get_latest_run_none_when_no_history(run_repo):
     assert run_repo.get_latest_run("nobody") is None
+
+
+def test_ordering_holds_for_many_saves_in_the_same_clock_tick(run_repo):
+    """Hai test xếp thứ tự phía trên từng chớp tắt trên Windows.
+
+    Lý do: đồng hồ hệ thống nhảy từng ~15,6ms nên nhiều lần lưu liên tiếp nhận
+    đúng cùng một `created_at`, và `ORDER BY created_at` khi bằng nhau thì thứ
+    tự do engine tự quyết. 30 bản ghi lưu trong một vòng lặp chặt chắc chắn rơi
+    vào cùng một tick — nếu thứ tự vẫn đúng thì lỗi đó đã hết.
+
+    Đây không chỉ là chuyện của test: cùng lỗi làm trang History xếp sai và
+    `/api/download` không kèm run_id trả về nhầm lần chạy.
+    """
+    criteria = SearchCriteria()
+    saved = [
+        run_repo.save_run(username="alice", provider="mock", criteria=criteria, results=[])
+        for _ in range(30)
+    ]
+
+    # Tiền đề của bài test: chúng phải thực sự được lưu sát nhau.
+    assert saved[-1].created_at > saved[0].created_at
+
+    runs = run_repo.list_runs("alice", limit=30)
+    assert [r.id for r in runs] == [s.id for s in reversed(saved)]
+    assert run_repo.get_latest_run("alice").id == saved[-1].id
+
+
+def test_ordering_survives_rows_written_before_the_monotonic_clock(run_repo, monkeypatch):
+    """Dòng CŨ trong DB thật vẫn có created_at trùng nhau — tiebreaker `rowid` lo phần đó.
+
+    Giả lập bằng cách đóng băng đồng hồ, để mọi bản ghi mang đúng một mốc.
+    """
+    frozen = "2026-09-01T00:00:00+00:00"
+    monkeypatch.setattr("saletool.db.sqlite_repo.now_iso", lambda: frozen)
+
+    criteria = SearchCriteria()
+    saved = [
+        run_repo.save_run(username="alice", provider="mock", criteria=criteria, results=[])
+        for _ in range(10)
+    ]
+    assert len({s.created_at for s in saved}) == 1, "phải trùng mốc thì mới đúng tình huống cần thử"
+
+    runs = run_repo.list_runs("alice", limit=10)
+    assert [r.id for r in runs] == [s.id for s in reversed(saved)]
+    assert run_repo.get_latest_run("alice").id == saved[-1].id

@@ -61,7 +61,8 @@ The project does **not** load `.env` — export variables in the shell that runs
   (`saletool/crypto.py`). Changing it = users must re-enter their API keys.
 - **`PYTHONIOENCODING=utf-8`** on Windows — cp1252 console can't encode the Vietnamese CLI
   output. `create-user` succeeds and *then* raises `UnicodeEncodeError` while printing.
-- `APOLLO_API_KEY` for the CLI. The web UI takes the Apollo key per-request in the form instead.
+- `APOLLO_API_KEY` for the CLI only. The web UI reads the Apollo key from Settings, where it
+  is stored encrypted; `/api/search` no longer accepts it as a form field.
 - `SALETOOL_DB_BACKEND` (`sqlite` default | `mongo`), `SALETOOL_DB_PATH`, `SALETOOL_MONGO_URI`.
 
 ## Architecture
@@ -178,14 +179,19 @@ Implement `CompanyContactProvider` (`providers/base.py`: `search_companies`,
   time, so the whole app fails to start, not just the tests. This bit
   `saletool/api/routes/catalog.py::delete_service` on FastAPI 0.115.5 / Python 3.12; the
   annotation is now dropped with a comment saying why.
-- 204 tests pass here; the rest fail only because the active interpreter lacks
+- 211 tests pass here; the rest fail only because the active interpreter lacks
   `pytest-httpx`, `mongomock` and `trafilatura` (all listed in the requirements files).
-- `tests/test_db_sqlite_repo.py::test_get_latest_run` and `::test_list_runs_most_recent_first`
-  fail *intermittently* on Windows: `sqlite_repo.py` orders by `created_at` alone, and the
-  coarse Windows clock gives two quick saves an identical ISO timestamp, so ordering is
-  arbitrary. Passing on a given run proves nothing. This affects the History list and
-  `/api/download` without a `run_id`, not just the tests — a tiebreaker (rowid or a monotonic
-  sequence) would fix it.
+- **Never mint an ordering timestamp with `datetime.now()` — use `saletool/clock.py::now_iso()`.**
+  Measured on this machine: 2000 consecutive `datetime.now()` calls yield **2 distinct values**,
+  one of them repeated 1333 times. The system clock ticks every ~15.6ms, so any two rows saved
+  in the same tick share a `created_at`, and `ORDER BY created_at` then returns them in whatever
+  order the engine likes. That used to make `test_get_latest_run` and `::test_list_runs_most_recent_first`
+  fail about half the time, and it silently mis-ordered the History list and made `/api/download`
+  without a `run_id` hand back the wrong run. `clock.py` issues strictly increasing stamps
+  (bumping by 1µs when the clock has not moved); SQLite reads additionally tie-break on `rowid`
+  so rows written *before* that fix still come back in insertion order. Mongo has no such
+  fallback — its `_id` is a random UUID — so pre-existing Mongo rows with duplicate timestamps
+  stay ambiguous.
 
 ## Docs
 
