@@ -91,7 +91,7 @@ export default function Enrichment() {
       const withContext = extraContext.trim()
         ? targets.map((t) => ({ ...t, extra_context: extraContext.trim() }))
         : targets;
-      const { job_id } = await api.startEnrich(withContext);
+      const { job_id } = await api.startEnrich(withContext, source === "run" ? runId : null);
       setJobId(job_id);
     } catch (err) {
       setError(err.message || "Couldn't start enrichment.");

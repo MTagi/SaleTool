@@ -1,7 +1,7 @@
-"""Băm và xác thực mật khẩu (stdlib only — không phụ thuộc thư viện ngoài).
+"""Hash and verify passwords (stdlib only; no external dependencies).
 
-Dùng PBKDF2-HMAC-SHA256, không phải giải pháp mạnh nhất hiện có (bcrypt/argon2)
-nhưng đủ tốt cho một tool nội bộ và tránh phụ thuộc vào extension biên dịch native.
+Uses PBKDF2-HMAC-SHA256. It is not the strongest available option (bcrypt/argon2),
+but is suitable for an internal tool and avoids native compiled extensions.
 """
 
 from __future__ import annotations

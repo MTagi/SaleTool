@@ -1,7 +1,7 @@
-"""Đồng hồ phát mốc thời gian tăng nghiêm ngặt.
+"""Clock that emits strictly increasing timestamps.
 
-Bài test này tồn tại vì `datetime.now()` KHÔNG đủ: trên Windows, 2000 lần gọi
-liên tiếp chỉ cho ra 2 giá trị khác nhau. Xem saletool/clock.py.
+These tests exist because `datetime.now()` is NOT precise enough: on Windows,
+2,000 consecutive calls produced only two distinct values. See saletool/clock.py.
 """
 
 from datetime import datetime, timezone
@@ -13,25 +13,24 @@ def test_consecutive_calls_are_strictly_increasing():
     stamps = [now() for _ in range(5000)]
 
     assert stamps == sorted(stamps)
-    assert len(set(stamps)) == len(stamps), "có hai mốc trùng nhau"
+    assert len(set(stamps)) == len(stamps), "two timestamps are identical"
 
 
 def test_plain_datetime_now_really_does_collide():
-    """Chốt lại lý do module clock tồn tại.
+    """Document why the clock module exists.
 
-    Nếu một ngày nào đó `datetime.now()` đủ mịn trên mọi nền tảng thì test này
-    fail — và đó là tín hiệu để xem lại có còn cần clock.py nữa không, chứ
-    không phải lỗi.
+    If `datetime.now()` becomes precise enough on all platforms, this test will
+    fail. That is a signal to reconsider whether clock.py is still needed, not a bug.
     """
     raw = [datetime.now(timezone.utc) for _ in range(2000)]
 
     assert len(set(raw)) < len(raw), (
-        "datetime.now() không còn trùng lặp — kiểm tra lại xem clock.py có còn cần thiết"
+        "datetime.now() no longer produces duplicates — reconsider whether clock.py is still needed"
     )
 
 
 def test_iso_output_still_parses_as_utc():
-    """Đơn điệu không được đánh đổi bằng việc làm hỏng định dạng đang lưu trong DB."""
+    """Monotonicity must not break the timestamp format stored in the database."""
     text = now_iso()
 
     parsed = datetime.fromisoformat(text)
@@ -40,11 +39,11 @@ def test_iso_output_still_parses_as_utc():
 
 
 def test_stays_close_to_the_real_clock():
-    """Cộng dồn micro-giây không được trôi xa giờ thật."""
+    """Accumulated microseconds must not drift far from the actual time."""
     before = datetime.now(timezone.utc)
     for _ in range(10000):
         now()
     issued = now()
 
     drift = abs((issued - before).total_seconds())
-    assert drift < 1.0, f"lệch {drift}s so với đồng hồ thật"
+    assert drift < 1.0, f"{drift}s drift from the actual clock"

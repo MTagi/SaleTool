@@ -1,19 +1,20 @@
 :root {
-  --paper: #f4eef9;
-  --paper-raised: rgba(255, 255, 255, 0.85);
-  --ink: #2a163d;
-  --ink-soft: #6d5487;
-  --line: #e3d3f2;
-  --accent: #8b3abf;
-  --accent-soft: #f2e6fa;
+  color-scheme: light;
+  --paper: #f6f8f9;
+  --paper-raised: #ffffff;
+  --ink: #172d3b;
+  --ink-soft: #5c6c79;
+  --line: #e3e6ef;
+  --accent: #087787;
+  --accent-soft: #e6f3f3;
   --card: #ffffff;
-  --sunk: #faf6fd;
-  --ink-faint: #9b86b0;
-  --rule2: #d6c2ea;
-  --gradient-accent: linear-gradient(135deg, #8b3abf, #ff3366);
-  --gradient-bg: linear-gradient(135deg, #f7effa 0%, #e8daf2 100%);
-  --shadow-sm: 0 4px 12px rgba(139, 58, 191, 0.08);
-  --shadow-md: 0 8px 24px rgba(139, 58, 191, 0.15);
+  --sunk: #f8f9fc;
+  --ink-faint: #697187;
+  --rule2: #cdd2df;
+  --gradient-accent: #087787;
+  --gradient-bg: #f6f8f9;
+  --shadow-sm: 0 2px 6px rgb(28 35 61 / 3%);
+  --shadow-md: 0 12px 36px rgb(28 35 61 / 8%);
   --error-fg: #b3261e;
   --error-bg: #fbeceb;
   --error-line: #f2c6c2;
@@ -22,43 +23,14 @@
   --success-line: #bfe3cb;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0f0a17;
-    --paper-raised: rgba(26, 17, 38, 0.75);
-    --ink: #eadff5;
-    --ink-soft: #a084bd;
-    --line: #3b2559;
-    --accent: #d268f7;
-    --accent-soft: #3a165c;
-    --card: #1a1126;
-    --sunk: #150e20;
-    --ink-faint: #7d6499;
-    --rule2: #4a3070;
-    --gradient-accent: linear-gradient(135deg, #d268f7, #ff6b6b);
-    --gradient-bg: linear-gradient(135deg, #0a0612 0%, #170d24 100%);
-    --shadow-sm: 0 4px 12px rgba(210, 104, 247, 0.12);
-    --shadow-md: 0 8px 24px rgba(210, 104, 247, 0.25);
-    --error-fg: #ff9a90;
-    --error-bg: #3a1a17;
-    --error-line: #5a2a24;
-    --success-fg: #6fe3ab;
-    --success-bg: #123024;
-    --success-line: #1f4a37;
-  }
-}
-
 * { box-sizing: border-box; }
 
-html, body, #root { height: 100%; }
+html { min-height: 100%; background: var(--paper); }
+body, #root { min-height: 100vh; }
 
 body {
   margin: 0;
-  /* `fixed` là bắt buộc, không phải trang trí: body cao đúng 100% viewport
-     (xem luật height ngay trên), nên trên trang dài hơn màn hình vùng vẽ nền
-     vẫn chỉ cao bằng viewport và gradient bị *lặp lại* — cuộn xuống thấy nó
-     restart thành một vệt ngang. Neo vào viewport thì nó vẽ một lần duy nhất. */
-  background: var(--gradient-bg) fixed;
+  background: var(--paper);
   min-height: 100vh;
   color: var(--ink);
   font-family: ui-sans-serif, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -66,7 +38,9 @@ body {
   line-height: 1.55;
 }
 
-a { color: var(--accent); }
+a { color: var(--accent); text-underline-offset: 3px; }
+input, select, textarea, button { font: inherit; }
+input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
 
 /* ---- App bar: stays put while the page scrolls ----------------------------
    The workflow strip tells you where you are in a 5-step process; scrolled off
@@ -96,8 +70,8 @@ a { color: var(--accent); }
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 20px;
-  padding: 10px 24px;
-  max-width: 1400px;
+  padding: 16px 24px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 .topbar .brand {
@@ -108,24 +82,26 @@ a { color: var(--accent); }
   font-size: 17px;
   letter-spacing: -0.02em;
   text-decoration: none;
-  background: var(--gradient-accent);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--ink);
 }
 /* Small accent mark so the wordmark reads as a product, not a heading. */
 .topbar .brand::before {
-  content: "";
-  width: 10px;
-  height: 10px;
-  border-radius: 4px;
+  content: "A";
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 19px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   background: var(--gradient-accent);
-  box-shadow: 0 0 10px var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 .topbar nav { display: flex; gap: 4px; align-items: center; font-size: 14px; }
 .topbar nav a {
   color: var(--ink-soft);
   text-decoration: none;
-  padding: 5px 10px;
+  padding: 8px 12px;
   border-radius: 7px;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -157,7 +133,7 @@ a { color: var(--accent); }
 .workflow {
   border-top: 1px solid var(--line);
   overflow-x: auto;
-  scrollbar-width: none;            /* dải này tự cuộn theo bước hiện tại */
+  scrollbar-width: none;            /* This strip scrolls with the current step. */
 }
 .workflow::-webkit-scrollbar { display: none; }
 .workflow ol {
@@ -167,13 +143,13 @@ a { color: var(--accent); }
   list-style: none;
   margin: 0 auto;
   padding: 0 24px;
-  max-width: 1400px;
+  max-width: 1280px;
   min-width: max-content;
 }
 .workflow-step { position: relative; flex: 1; min-width: 132px; }
 
-/* Vạch nối giữa các bước: nói rằng đây là một chuỗi có thứ tự chứ không phải
-   5 tab rời nhau. Không vẽ trước bước đầu tiên. */
+/* Connect the steps to show an ordered flow instead of five separate tabs.
+   Do not draw a connector before the first step. */
 .workflow-step + .workflow-step::before {
   content: "";
   position: absolute;
@@ -189,7 +165,7 @@ a { color: var(--accent); }
   align-items: center;
   gap: 10px;
   height: 100%;
-  padding: 8px 10px;
+  padding: 14px 12px;
   text-decoration: none;
   color: var(--ink-soft);
   border-bottom: 2px solid transparent;
@@ -201,9 +177,9 @@ a { color: var(--accent); }
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 23px;
-  height: 23px;
-  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   border: 1px solid var(--line);
   background: var(--paper);
   font-size: 12px;
@@ -225,14 +201,14 @@ a { color: var(--accent); }
   background: var(--gradient-accent);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 0 12px var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Khung rộng để bảng thở được; .narrow dành cho trang một cột (Account). */
-.container { max-width: 1240px; margin: 0 auto; padding: 22px 24px 72px; }
+/* Wide frame gives tables room; .narrow is for single-column pages (Account). */
+.container { max-width: 1280px; margin: 0 auto; padding: 32px 24px 80px; }
 .container.narrow { max-width: 560px; }
 
-h1 { font-size: 22px; margin: 0 0 12px; letter-spacing: -0.01em; }
+h1 { font-size: clamp(24px, 2.4vw, 30px); line-height: 1.25; margin: 0 0 12px; letter-spacing: -0.035em; font-weight: 700; }
 .muted { color: var(--ink-soft); }
 .small { font-size: 13px; }
 .small-note { font-size: 12.5px; margin: 4px 0 8px; }
@@ -256,18 +232,20 @@ h1 { font-size: 22px; margin: 0 0 12px; letter-spacing: -0.01em; }
 }
 
 .auth-card {
-  max-width: 360px;
-  margin: 64px auto;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
   background: var(--paper-raised);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 32px;
+  border-radius: 20px;
+  padding: 40px;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
 }
 .auth-card h1 { margin-bottom: 4px; }
 
-form label { display: block; margin: 8px 0; font-size: 13px; color: var(--ink-soft); }
+form label { display: block; margin: 10px 0; font-size: 13px; color: var(--ink); font-weight: 500; }
+form label .small-note { display: block; font-weight: 400; }
 .field-label { display: block; margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); }
 form input[type="text"],
 form input[type="password"],
@@ -276,13 +254,14 @@ form input[type="file"],
 form select {
   display: block;
   width: 100%;
-  margin-top: 2px;
-  padding: 8px 10px;
+  margin-top: 6px;
+  min-height: 42px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper-raised);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-family: inherit;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -314,8 +293,8 @@ button.primary {
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 button.primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(139, 58, 191, 0.35);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgb(100 67 200 / 20%);
 }
 button.primary:disabled { opacity: 0.6; cursor: default; transform: none; box-shadow: none; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
@@ -340,7 +319,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .contact-name { font-weight: 600; }
 .contact-title { color: var(--ink-soft); }
 
-.company-card .small { padding: 10px 18px; margin: 0; }
+.company-card > .small { padding: 10px 18px; margin: 0; }
 .company-card .toolbar { margin-top: 6px; font-size: 13.5px; }
 
 .account-username { margin: 0; font-size: 17px; font-weight: 650; }
@@ -356,7 +335,7 @@ form textarea {
   background: var(--paper-raised);
   color: var(--ink);
   font-size: 14px;
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-family: inherit;
   line-height: 1.5;
   resize: vertical;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -368,11 +347,11 @@ form textarea:focus {
 }
 
 button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  padding: 7px 14px;
-  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink-soft);
+  border: 1px solid var(--rule2);
+  padding: 9px 14px;
+  border-radius: 8px;
   font-size: 13.5px;
   font-weight: 600;
   font-family: inherit;
@@ -404,11 +383,11 @@ form code {
   flex-wrap: wrap;
   padding: 12px 16px;
   margin-bottom: 16px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--line);
   background: var(--accent-soft);
   border-radius: 12px;
   font-size: 13.5px;
-  box-shadow: 0 4px 16px rgba(139, 58, 191, 0.12);
+  box-shadow: none;
 }
 .auto-enrich-bar .checkbox { color: var(--ink); }
 
@@ -524,8 +503,8 @@ form code {
 .message-warnings li { margin: 2px 0; }
 
 /* ---- Prerequisites and empty states ---- */
-/* Thiếu cấu hình của đúng ô ngay bên trên — đặt cạnh ô đó thay vì gom lên đầu
-   trang, để người dùng thấy ngay khi đổi lựa chọn. */
+/* A required setting for the field above is missing. Show it beside that field
+   rather than at the top of the page, so it is visible when the selection changes. */
 .field-missing {
   margin: 6px 0 10px;
   padding: 8px 12px;
@@ -578,7 +557,7 @@ form code {
   padding: 28px 20px;
   margin: 16px 0;
   text-align: center;
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--card);
 }
 .empty-state p { margin: 0 0 8px; }
 .empty-state p:last-child { margin-bottom: 0; }
@@ -598,34 +577,34 @@ form code {
 .getting-started li.done { color: var(--ink-soft); }
 
 /* ==========================================================================
-   Bộ kit dựng theo wireframe — giữ nguyên tông tím sẵn có.
-   Ba thứ wireframe đổi so với bản cũ:
-     1. Trang kết quả: thẻ xếp dọc -> BẢNG quét được, chi tiết đẩy vào dòng mở rộng
-     2. Chọn nhiều dòng + thanh hành động hàng loạt
-     3. Mỗi trang chạy-được có CỘT PHẢI DÍNH gom "sắp chạy gì" + nút chạy
+   Styles for the wireframe kit — keep the existing purple palette.
+   Three changes from the previous layout:
+     1. Results page: stacked cards -> scannable TABLE with details in expandable rows
+     2. Multi-row selection + bulk action bar
+     3. Each runnable page has a STICKY RIGHT COLUMN for the run summary and action
    ========================================================================== */
 
-/* Bố cục 2 cột: nội dung + rail phải dính dưới thanh nav. */
+/* Two-column layout: content + right rail that sticks below the nav. */
 .cols {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 18px;
   align-items: start;
 }
-/* 104px = chiều cao thanh trên + dải 5 bước; rail dừng ngay dưới chúng. */
-.rail { position: sticky; top: 104px; }
+/* Keep the action panel below the two navigation rows. */
+.rail { position: sticky; top: 156px; min-width: 0; }
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; }
   .rail { position: static; }
 }
 
-/* Thẻ: đầu thẻ là một dải riêng có tiêu đề + gợi ý bên phải. */
+/* Cards have a separate header row with a title and a hint on the right. */
 .card2 {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--card);
   box-shadow: var(--shadow-sm);
-  margin-bottom: 14px;
+  margin-bottom: 18px;
   overflow: hidden;
 }
 .card2 > header {
@@ -633,42 +612,42 @@ form code {
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--sunk);
 }
 .card2 > header h2 {
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--ink-soft);
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 .card2 > header .hint { font-size: 11.5px; color: var(--ink-faint); }
-.card2 .cb { padding: 14px 16px; }
+.card2 .cb { padding: 18px 20px; }
 .card2 .cb.flush { padding: 0; }
 
-/* Lưới trường trong thẻ. */
+/* Grid of fields inside a card. */
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
 .g3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; }
 @media (max-width: 700px) { .g2, .g3 { grid-template-columns: 1fr; } }
 
-/* Bảng — thay cho các thẻ xếp dọc. */
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* Table, replacing the stacked cards. */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tbl th {
   text-align: left;
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 700;
   color: var(--ink-faint);
-  padding: 8px 14px;
+  padding: 12px 16px;
   background: var(--sunk);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
-.tbl td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tbl td { padding: 14px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .tbl tbody tr:last-child td { border-bottom: 0; }
 .tbl tbody tr.pick:hover { background: var(--accent-soft); }
 .tbl tbody tr.open { background: var(--accent-soft); }
@@ -676,13 +655,14 @@ form code {
 .tbl .num { font-variant-numeric: tabular-nums; }
 .tbl .tick { width: 34px; }
 .tbl .rank { width: 44px; }
-/* Cột lý do: không cho một câu dài kéo giãn cả bảng. */
+/* Rationale column: prevent a long sentence from stretching the whole table. */
 .tbl .why { max-width: 320px; }
-/* Dòng chi tiết mở ra dưới một dòng bảng — nền lõm để thấy nó thuộc dòng trên. */
+/* Detail row below a table row; inset background shows that it belongs to the row above. */
 .tbl tr.detail-row > td { background: var(--sunk); }
-.tw { overflow-x: auto; }
+.tw { overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
+.cols > *, .g2 > *, .g3 > * { min-width: 0; }
 
-/* Thanh hành động khi đã chọn dòng. */
+/* Action bar shown when rows are selected. */
 .selbar {
   display: flex;
   align-items: center;
@@ -695,7 +675,7 @@ form code {
 }
 .selbar strong { color: var(--accent); }
 
-/* Rail "trước khi chạy". */
+/* "Before you run" rail. */
 .rail-big { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
 .rail-big span { font-size: 12px; font-weight: 400; color: var(--ink-soft); margin-left: 5px; }
 .rail-row {
@@ -708,11 +688,11 @@ form code {
 }
 .rail-row .k { color: var(--ink-soft); }
 
-/* Pill bấm được — dùng cho seniority và chọn dịch vụ. */
+/* Clickable pills, used for seniority and service selection. */
 .pill {
   border: 1px solid var(--rule2);
   border-radius: 20px;
-  padding: 3px 11px;
+  padding: 7px 13px;
   font-size: 12px;
   background: var(--card);
   color: var(--ink-soft);
@@ -728,7 +708,7 @@ form code {
 }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill-group-label {
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--ink-faint);
@@ -736,7 +716,7 @@ form code {
   margin: 10px 0 5px;
 }
 
-/* Nhãn nhỏ. */
+/* Small labels. */
 .badge {
   display: inline-block;
   border: 1px solid var(--rule2);
@@ -750,7 +730,7 @@ form code {
 .badge.good { background: var(--success-bg); border-color: var(--success-line); color: var(--success-fg); }
 .badge.bad { background: var(--error-bg); border-color: var(--error-line); color: var(--error-fg); }
 
-/* Thanh "bước tiếp theo" ở cuối trang kết quả. */
+/* "Next step" bar at the bottom of the results page. */
 .nextbar {
   display: flex;
   justify-content: space-between;
@@ -764,21 +744,21 @@ form code {
   margin-top: 16px;
 }
 
-/* Ghi chú vàng: lời khuyên, không phải lỗi. */
+/* Yellow note: advice, not an error. */
 
 .toolbar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .page-head {
   display: flex;
   justify-content: space-between;
-  /* `baseline` chứ không phải `flex-end`: khối trái là h1 + đoạn dẫn dài, canh
-     đáy sẽ dìm hàng link xuống ngang chân đoạn dẫn, trông như nó rơi ra khỏi
-     tiêu đề. Canh theo baseline thì link nằm đúng dòng h1. */
+  /* Use `baseline`, not `flex-end`: the left block is an h1 plus a long lead.
+     Bottom alignment pushes the links to the bottom of the lead, making them
+     look detached from the title. Baseline alignment keeps them beside the h1. */
   align-items: baseline;
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.lede { color: var(--ink-soft); font-size: 13px; margin: 3px 0 16px; max-width: 82ch; }
+.lede { color: var(--ink-soft); font-size: 14px; line-height: 1.65; margin: 6px 0 20px; max-width: 76ch; }
 .workflow-hint.blocked { color: var(--error-fg); }
 .readiness-row {
   display: flex;
@@ -791,11 +771,11 @@ form code {
 }
 .readiness-row:last-child { border-bottom: 0; }
 
-/* ---- Tiện ích nhỏ: thay cho style inline trong JSX ------------------------
-   Mỗi lớp ở đây sinh ra từ một `style={{...}}` lặp lại ở vài trang. Giữ chúng
-   trong CSS để sửa một chỗ là cả app đổi theo. */
+/* ---- Small utilities to replace repeated inline JSX styles ----------------
+   Each class replaces a `style={{...}}` repeated across multiple pages. Keeping
+   them in CSS lets one change update the whole app. */
 .nowrap { white-space: nowrap; }
-.after { margin-top: 18px; }              /* khối kết quả nằm dưới form */
+.after { margin-top: 18px; }              /* Results block below the form. */
 .spaced { margin-top: 14px; }
 .spaced-sm { margin-top: 6px; }
 .pills.spaced-sm { margin-bottom: 12px; }
@@ -811,11 +791,11 @@ form code {
 .badge-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
 .auth-footnote { text-align: center; margin-top: 14px; }
 .auth-card .primary { width: 100%; }
-/* Ô lọc đặt cuối một .toolbar: đẩy sang phải, không ăn hết chiều ngang. */
+/* Filter at the end of a .toolbar: align right without taking the full width. */
 .toolbar input.filter-input { margin-left: auto; max-width: 240px; margin-top: 0; }
-/* Nút chạy nằm trong rail: rộng bằng cả cột phải. */
+/* Run button in the rail: fill the right column. */
 .rail .primary { width: 100%; margin-top: 14px; }
-/* Đoạn văn giải thích trong rail. */
+/* Explanatory text in the rail. */
 .prose { font-size: 12.5px; line-height: 1.6; }
 .prose p { margin: 0 0 9px; }
 .prose p:last-child { margin-bottom: 0; }
@@ -823,8 +803,8 @@ form code {
 /* ---- Narrow screens ---- */
 @media (max-width: 720px) {
   .topbar { padding: 11px 16px; }
-  /* Các link giờ là "pill" có padding riêng, nên khoảng cách phải nhỏ lại —
-     giữ gap cũ thì hàng link tràn ra ngoài trên máy hẹp. */
+  /* Links now have their own pill padding, so reduce the gap; the old spacing
+     caused the row to overflow on narrow screens. */
   .topbar nav { gap: 2px; font-size: 13.5px; }
   .topbar nav a { padding: 4px 8px; }
   .topbar-user { padding-left: 8px; margin-left: 3px; }
@@ -836,3 +816,190 @@ form code {
   .enrich-detail { flex-direction: column; gap: 2px; }
   .enrich-detail-label { min-width: 0; }
 }
+
+/* Login and shared responsive details. */
+.login-page { min-height: 100dvh; display: grid; align-content: center; padding-block: 48px; }
+.auth-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--gradient-accent); color: white; font-size: 25px; font-weight: 750; margin-bottom: 24px; }
+.eyebrow { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 10px; }
+.auth-card form { margin-top: 24px; }
+.auth-card .primary { margin-top: 16px; }
+.auth-footnote { padding-top: 20px; border-top: 1px solid var(--line); margin-top: 24px; }
+.getting-started ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; }
+.getting-started li { padding: 8px 0; }
+.getting-started li .small { display: block; padding-left: 18px; margin-top: 3px; }
+.auto-enrich-bar .checkbox { gap: 10px; }
+.empty-state { padding: 48px 24px; }
+.empty-state p:first-child { color: var(--ink); font-size: 17px; font-weight: 600; }
+.empty-state .button-link { margin-top: 12px; }
+.nextbar { margin-bottom: 18px; }
+.topbar-user { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-meta, .enrich-detail > span:last-child, .page-head > div { min-width: 0; overflow-wrap: anywhere; }
+.card2 > header { flex-wrap: wrap; }
+.toolbar .link-button { min-height: 36px; }
+::selection { background: var(--accent-soft); color: var(--ink); }
+@media (max-width: 720px) {
+  .topbar { gap: 12px; }
+  .topbar nav { flex-wrap: wrap; width: 100%; }
+  .topbar nav a { min-height: 36px; display: inline-flex; align-items: center; }
+  .topbar .brand { font-size: 16px; }
+  .topbar-user { margin-left: auto; max-width: 90px; }
+  .workflow ol { padding: 0 8px; }
+  .workflow-step { min-width: 106px; }
+  .workflow-step a { padding: 10px 8px; gap: 7px; }
+  .workflow-index { width: 25px; height: 25px; }
+  .workflow-label { font-size: 13px; }
+  .card2 .cb, .card2 > header { padding: 16px; }
+  .auth-card { padding: 28px 24px; }
+  form input[type="text"], form input[type="password"], form input[type="number"], form select, form textarea { font-size: 16px; }
+  .auto-enrich-bar .checkbox { align-items: flex-start; }
+  .auto-enrich-bar input { margin-top: 3px; }
+  .getting-started ul { grid-template-columns: 1fr; gap: 0; }
+  .split { flex-wrap: wrap; }
+  .toolbar input.filter-input { max-width: none; width: 100%; margin: 8px 0 0; }
+  .page-head .toolbar { width: 100%; }
+  .page-head .toolbar button { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* Route-backed settings dialog: the current workspace stays mounted underneath. */
+.settings-dialog {
+  padding: 0; border: 1px solid var(--line); border-radius: 20px;
+  width: min(960px, calc(100vw - 40px)); max-width: none;
+  height: min(720px, calc(100dvh - 48px)); max-height: none;
+  background: var(--card); color: var(--ink); box-shadow: 0 24px 90px #0003;
+  overflow: hidden;
+}
+.settings-dialog::backdrop { background: rgb(18 23 38 / 35%); backdrop-filter: blur(3px); }
+.settings-shell { display: grid; grid-template-columns: 225px minmax(0, 1fr); height: 100%; }
+.settings-sidebar { display: flex; flex-direction: column; min-height: 0; padding: 16px 12px; border-right: 1px solid var(--line); }
+.settings-sidebar-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.settings-close { font-size: 26px; line-height: 1; width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--ink); box-shadow: none; }
+.settings-search { width: 100%; min-width: 0; border-radius: 20px; font-size: 13px; margin-bottom: 12px; }
+.settings-tabs { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.settings-tabs button { display: flex; align-items: center; gap: 12px; text-align: left; flex-shrink: 0; border: 0; box-shadow: none; background: transparent; color: var(--ink-soft); font-weight: 400; padding: 10px 12px; border-radius: 9px; }
+.settings-tabs button:hover { background: var(--sunk); color: var(--ink); }
+.settings-tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.settings-tab-icon { width: 20px; text-align: center; font-size: 20px; line-height: 1; }
+.settings-sidebar-note { margin: auto 10px 0; padding-top: 24px; color: var(--ink-faint); font-size: 11px; line-height: 1.8; }
+.settings-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.settings-heading { margin: 0 28px; padding: 25px 0 18px; border-bottom: 1px solid var(--line); }
+.settings-heading h1 { font-size: 21px; margin: 0 0 5px; letter-spacing: -.3px; }
+.settings-heading p { margin: 0; color: var(--ink-faint); font-size: 13px; }
+.settings-body { overflow-y: auto; min-height: 0; padding: 22px 28px; flex: 1; overscroll-behavior: contain; }
+.settings-fields { padding: 0; margin: 0; min-width: 0; border: 0; }
+.settings-intro { margin-top: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.8; }
+.settings-body .card2 { box-shadow: none; border: 0; border-radius: 0; background: transparent; margin: 0; }
+.settings-body .card2 > header { padding: 0 0 16px; flex-wrap: wrap; gap: 8px; background: transparent; }
+.settings-body .card2 > .cb { padding: 18px 0 0; }
+.settings-body .readiness-row { padding: 18px 0; }
+.settings-body .row { flex-wrap: wrap; }
+.settings-body input, .settings-body select, .settings-body textarea { max-width: 100%; }
+.settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 28px; border-top: 1px solid var(--line); background: var(--card); }
+.settings-footer > .primary { flex-shrink: 0; }
+.settings-discard { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.settings-discard span { flex-basis: 100%; }
+.settings-discard button { font-size: 12px; padding: 6px 10px; }
+@media (max-width: 640px) {
+  .settings-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); border-radius: 14px; }
+  .settings-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-sidebar { padding: 10px 12px 8px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .settings-sidebar-heading { margin-bottom: 8px; }
+  .settings-search { margin-bottom: 8px; }
+  .settings-tabs { flex-direction: row; overflow-x: auto; }
+  .settings-tabs button { white-space: nowrap; padding: 8px 10px; font-size: 13px; }
+  .settings-sidebar-note { display: none; }
+  .settings-heading { margin: 0 16px; padding: 16px 0 12px; }
+  .settings-heading h1 { font-size: 19px; }
+  .settings-body { padding: 16px; }
+  .settings-footer { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
+  .settings-footer > .primary { margin-left: auto; }
+}
+.settings-search {
+  appearance: none; min-height: 38px; flex-shrink: 0;
+  border: 1px solid var(--line); padding: 8px 12px;
+  background: var(--card); color: var(--ink); font-family: inherit;
+}
+.settings-search::placeholder { color: var(--ink-faint); }
+.settings-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { .settings-search { font-size: 16px; } }
+
+.catalog-dialog { width: min(760px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 18px; color: var(--ink); background: var(--card); box-shadow: 0 24px 90px #0003; overflow: hidden; }
+.catalog-dialog::backdrop { background: rgb(18 23 38 / 35%); backdrop-filter: blur(3px); }
+.catalog-dialog .card2 { margin: 0; border: 0; box-shadow: none; display: flex; flex-direction: column; max-height: calc(100dvh - 34px); }
+.catalog-dialog .card2 > header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; }
+.catalog-dialog .card2 > header h2 { font-size: 20px; }
+.catalog-fields { border: 0; margin: 0; min-width: 0; overflow-y: auto; padding: 24px; }
+.catalog-form-footer { flex-shrink: 0; margin: 0; padding: 16px 24px; border-top: 1px solid var(--line); justify-content: flex-end; }
+@media (max-width: 640px) { .catalog-dialog { width: calc(100vw - 16px); } .catalog-fields { padding: 16px; } .catalog-dialog .g2 { grid-template-columns: minmax(0, 1fr); } }
+.company-profile { margin-top: 8px; max-width: 560px; white-space: normal; }
+.company-profile summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.company-profile p, .company-profile dl { font-size: 13px; }
+.company-profile dt { color: var(--ink-soft); font-weight: 600; }
+.company-profile dd { margin: 0 0 10px; overflow-wrap: anywhere; }
+.enrich-markdown { line-height: 1.75; overflow-wrap: anywhere; margin: 20px 0; }
+.enrich-markdown h1 { font-size: 24px; }
+.enrich-markdown h2 { font-size: 19px; margin-top: 24px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.enrich-markdown h3 { font-size: 16px; }
+.enrich-markdown table { display: block; overflow-x: auto; border-collapse: collapse; }
+.enrich-markdown td, .enrich-markdown th { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
+.enrich-markdown pre { overflow-x: auto; }
+
+.enrich-body[hidden] { display: none; }
+.enrich-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.enrich-card-actions button { font-size: 12px; padding: 7px 12px; }
+.company-head { flex-wrap: wrap; gap: 10px; }
+.enrich-collapse-bottom { margin-top: 20px; }
+.research-dialog { width: min(700px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: var(--shadow-md); }
+.research-dialog::backdrop { background: rgb(18 23 38 / 40%); backdrop-filter: blur(3px); }
+.research-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+.research-dialog h2 { margin: 0; font-size: 20px; }
+.research-dialog p { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
+.research-dialog ol { padding-left: 24px; }
+.research-dialog li { padding: 12px 4px; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); line-height: 1.7; }
+
+/* ---- Company picker on the Messages page ---- */
+.company-picker-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 24px 90px #0003;
+  overflow: hidden;
+}
+.company-picker-dialog::backdrop { background: rgb(18 23 38 / 35%); backdrop-filter: blur(3px); }
+.company-picker-dialog .card2 { margin: 0; border: 0; box-shadow: none; display: flex; flex-direction: column; max-height: calc(100dvh - 34px); }
+.company-picker-dialog .card2 > header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; }
+.company-picker-dialog .card2 > header h2 { font-size: 20px; }
+.company-picker-body { overflow-y: auto; min-height: 0; padding: 20px 24px; }
+.company-picker-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.company-picker-list li { border-top: 1px solid var(--line); }
+.company-picker-list li:first-child { border-top: 0; }
+.company-picker-row { display: flex; align-items: center; gap: 10px; margin: 0; padding: 12px 4px; cursor: pointer; font-size: 14px; }
+.company-picker-row .count { margin-left: auto; color: var(--ink-soft); font-size: 12.5px; white-space: nowrap; }
+.company-picker-footer { flex-shrink: 0; margin: 0; padding: 16px 24px; border-top: 1px solid var(--line); justify-content: flex-end; }
+@media (max-width: 640px) { .company-picker-dialog { width: calc(100vw - 16px); } .company-picker-body { padding: 16px; } }
+
+/* ---- Confirm dialog shared by delete actions ---- */
+.confirm-dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 24px 90px #0003;
+  overflow: hidden;
+}
+.confirm-dialog::backdrop { background: rgb(18 23 38 / 35%); backdrop-filter: blur(3px); }
+.confirm-dialog .card2 { margin: 0; border: 0; box-shadow: none; }
+.confirm-dialog .card2 > header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; }
+.confirm-dialog .card2 > header h2 { font-size: 20px; }
+.confirm-dialog .toolbar { flex-shrink: 0; margin: 0; padding: 16px 24px; border-top: 1px solid var(--line); justify-content: flex-end; }
+@media (max-width: 640px) { .confirm-dialog { width: calc(100vw - 16px); } }

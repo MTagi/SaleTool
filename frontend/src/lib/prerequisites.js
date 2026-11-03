@@ -1,17 +1,17 @@
 /**
- * Điều kiện cần của một bước, dùng chung giữa banner và nút submit.
+ * Prerequisites for a step, shared by the banner and submit button.
  *
- * Một "check" là `{ ok, label, fix: { to, text } }`. Tách khỏi component
- * Prerequisites để trang có thể hỏi "đủ điều kiện chưa?" mà không phải import
- * một component chỉ để gọi một hàm.
+ * A "check" is `{ ok, label, fix: { to, text } }`. Keep this outside the
+ * Prerequisites component so a page can check readiness without importing a
+ * component just to call a function.
  */
 
-/** True khi mọi điều kiện đều đạt — dùng để bật/tắt nút submit. */
+/** True when all prerequisites pass; used to enable or disable submit. */
 export function allMet(checks) {
   return checks.every((check) => check.ok);
 }
 
-/** Những điều kiện chưa đạt, theo đúng thứ tự caller khai báo. */
+/** Return unmet prerequisites in the order supplied by the caller. */
 export function unmet(checks) {
   return checks.filter((check) => !check.ok);
 }

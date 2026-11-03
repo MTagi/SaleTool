@@ -1,7 +1,7 @@
 """Test ApolloProvider.
 
-Trọng tâm là bốn chỗ dễ sai âm thầm: đường dẫn endpoint, cách lọc ngành, phân
-trang, và bước tra email (chỗ duy nhất tốn credit).
+Focus on four places that can fail silently: endpoint paths, industry filtering,
+pagination, and email lookup (the only step that costs credits).
 """
 
 import httpx
@@ -39,11 +39,33 @@ def test_apollo_provider_requires_api_key():
         ApolloProvider(api_key="")
 
 
+def test_company_profile_fields_survive_serialization(httpx_mock):
+    org = _org("demo", "Demo")
+    org.update(short_description="Warehouse software", founded_year=2010,
+               primary_phone={"number": "+123"}, raw_address="Example street",
+               annual_revenue=1200000, total_funding_printed="2M",
+               current_technologies=[{"name": "Python"}, None, {}],
+               keywords=["logistics"], state="Example state", country="Vietnam")
+    httpx_mock.add_response(url=ORGANIZATION_SEARCH_URL, method="POST",
+                            json={"organizations": [org]})
+    company = _provider().search_companies(SearchCriteria(max_companies=1))[0]
+    restored = Company.model_validate_json(company.model_dump_json())
+    assert restored.description == "Warehouse software"
+    assert restored.phone == "+123"
+    assert restored.founded_year == 2010
+    assert restored.annual_revenue == "1200000"
+    assert restored.total_funding == "2M"
+    assert restored.technologies == ["Python"]
+    assert restored.keywords == ["logistics"]
+    assert restored.location == "Ho Chi Minh City, Example state, Vietnam"
+    assert restored.address == "Example street"
+
+
 # --- Endpoint ---------------------------------------------------------------
 
 
 def test_endpoints_use_the_api_v1_base_and_api_search():
-    """`/v1/...` là đường dẫn cũ, và `mixed_people/search` trả 403 trên gói Basic."""
+    """`/v1/...` is the old path, and `mixed_people/search` returns 403 on the Basic plan."""
     assert ORGANIZATION_SEARCH_URL.startswith("https://api.apollo.io/api/v1/")
     assert PEOPLE_SEARCH_URL.endswith("/mixed_people/api_search")
     assert PEOPLE_ENRICH_URL.endswith("/people/bulk_match")
@@ -56,11 +78,11 @@ def test_403_gives_an_actionable_message(httpx_mock):
         _provider().search_companies(SearchCriteria(max_companies=1))
 
 
-# --- Lọc ngành --------------------------------------------------------------
+# --- Industry filtering -----------------------------------------------------
 
 
 def test_industry_names_go_to_keyword_tags_not_tag_ids(httpx_mock):
-    """Tên ngành nhét vào `organization_industry_tag_ids` thì Apollo lặng lẽ bỏ qua."""
+    """Apollo silently ignores industry names in `organization_industry_tag_ids`."""
     httpx_mock.add_response(url=ORGANIZATION_SEARCH_URL, method="POST", json={"organizations": []})
 
     _provider().search_companies(
@@ -74,7 +96,7 @@ def test_industry_names_go_to_keyword_tags_not_tag_ids(httpx_mock):
 
 
 def test_real_apollo_tag_ids_still_use_the_tag_id_filter(httpx_mock):
-    """Ai đã tra được tag ID thật thì dán vào cùng ô đó, code tự nhận ra."""
+    """A real tag ID can be entered in the same field and is recognized automatically."""
     import json
 
     httpx_mock.add_response(url=ORGANIZATION_SEARCH_URL, method="POST", json={"organizations": []})
@@ -88,11 +110,11 @@ def test_real_apollo_tag_ids_still_use_the_tag_id_filter(httpx_mock):
     assert body["q_organization_keyword_tags"] == ["Fintech"]
 
 
-# --- Phân trang -------------------------------------------------------------
+# --- Pagination -------------------------------------------------------------
 
 
 def test_more_than_one_page_is_fetched(httpx_mock):
-    """Apollo trả tối đa 100/trang; xin 150 mà chỉ lấy trang 1 là thiếu âm thầm."""
+    """Apollo returns at most 100 per page; requesting 150 but fetching only page 1 silently misses results."""
     httpx_mock.add_response(
         url=ORGANIZATION_SEARCH_URL,
         method="POST",
@@ -116,6 +138,24 @@ def test_more_than_one_page_is_fetched(httpx_mock):
     assert len(httpx_mock.get_requests()) == 2
 
 
+def test_pagination_keeps_page_size_and_returns_distinct_companies(httpx_mock):
+    import json
+
+    def page_response(request):
+        body = json.loads(request.content)
+        start = (body["page"] - 1) * body["per_page"]
+        return httpx.Response(200, json={
+            "organizations": [_org(f"org-{i}", f"Company {i}")
+                              for i in range(start, min(start + body["per_page"], 150))],
+            "pagination": {"total_pages": 2},
+        })
+
+    httpx_mock.add_callback(page_response, url=ORGANIZATION_SEARCH_URL, is_reusable=True)
+    companies = _provider().search_companies(SearchCriteria(max_companies=150))
+    assert len(companies) == len({c.provider_id for c in companies}) == 150
+    assert [c.provider_id for c in companies] == [f"org-{i}" for i in range(150)]
+
+
 def test_pagination_stops_at_the_last_page(httpx_mock):
     httpx_mock.add_response(
         url=ORGANIZATION_SEARCH_URL,
@@ -130,7 +170,7 @@ def test_pagination_stops_at_the_last_page(httpx_mock):
 
 
 def test_pagination_stops_on_an_empty_page(httpx_mock):
-    """Apollo không phải lúc nào cũng trả `pagination` — trang rỗng là tín hiệu dừng."""
+    """Apollo does not always return `pagination`; an empty page signals completion."""
     httpx_mock.add_response(
         url=ORGANIZATION_SEARCH_URL, method="POST", json={"organizations": [_org("org-1", "A")]}
     )
@@ -139,7 +179,7 @@ def test_pagination_stops_on_an_empty_page(httpx_mock):
     assert len(_provider().search_companies(SearchCriteria(max_companies=50))) == 1
 
 
-# --- Liên hệ + email --------------------------------------------------------
+# --- Contacts and email -----------------------------------------------------
 
 
 def test_contacts_without_provider_id_returns_empty():
@@ -177,7 +217,7 @@ def test_locked_email_is_revealed_via_enrichment(httpx_mock):
 
 
 def test_people_without_an_email_are_not_enriched(httpx_mock):
-    """Mỗi lần tra là 1 credit — không trả tiền cho bản ghi chắc chắn không có email."""
+    """Each lookup costs one credit; do not pay for records that certainly have no email."""
     httpx_mock.add_response(
         url=PEOPLE_SEARCH_URL,
         method="POST",
@@ -189,7 +229,7 @@ def test_people_without_an_email_are_not_enriched(httpx_mock):
     )
 
     assert contacts[0].email is None
-    assert len(httpx_mock.get_requests()) == 1  # không gọi bulk_match
+    assert len(httpx_mock.get_requests()) == 1  # bulk_match is not called.
 
 
 def test_an_already_usable_email_is_not_re_enriched(httpx_mock):
@@ -223,7 +263,7 @@ def test_reveal_emails_false_skips_the_paid_call(httpx_mock):
 
 
 def test_personal_emails_are_off_by_default(httpx_mock):
-    """Email cá nhân tốn thêm credit và bị chặn ở vùng GDPR — phải là opt-in."""
+    """Personal emails cost extra credits and are blocked in GDPR regions, so they must be opt-in."""
     import json
 
     httpx_mock.add_response(
@@ -242,7 +282,7 @@ def test_personal_emails_are_off_by_default(httpx_mock):
 
 
 def test_enrichment_failure_still_returns_the_contacts(httpx_mock):
-    """Mất email thì vẫn còn LinkedIn URL; mất cả danh sách thì không còn gì."""
+    """If email lookup fails, the LinkedIn URL remains; losing both leaves nothing."""
     httpx_mock.add_response(
         url=PEOPLE_SEARCH_URL,
         method="POST",
@@ -269,7 +309,7 @@ def test_enrichment_failure_still_returns_the_contacts(httpx_mock):
 
 
 def test_enrichment_batches_at_ten_people(httpx_mock):
-    """bulk_match nhận tối đa 10 người/lần."""
+    """bulk_match accepts at most 10 people per request."""
     people = [{"id": f"p-{i}", "name": f"P{i}", "has_email": True} for i in range(12)]
     httpx_mock.add_response(url=PEOPLE_SEARCH_URL, method="POST", json={"people": people})
     httpx_mock.add_response(
@@ -292,7 +332,7 @@ def test_enrichment_batches_at_ten_people(httpx_mock):
 
 
 def test_revealed_emails_land_on_the_right_person(httpx_mock):
-    """Chỉ một phần danh sách được tra — kết quả phải ghép đúng vị trí gốc."""
+    """Only part of the list is looked up; results must map to their original positions."""
     httpx_mock.add_response(
         url=PEOPLE_SEARCH_URL,
         method="POST",
@@ -313,3 +353,58 @@ def test_revealed_emails_land_on_the_right_person(httpx_mock):
     )
 
     assert [c.email for c in contacts] == [None, "b@acme.com", "c@acme.com"]
+
+
+# --- Contact names before reveal -------------------------------------------
+
+
+def test_first_name_survives_when_apollo_obfuscates_the_last_name(httpx_mock):
+    """Before reveal, Apollo returns `name: null` and `last_name_obfuscated`.
+
+    Observed on the current plan on 2026-09-04. Previously, the provider read only
+    `name`, leaving every contact nameless even though Apollo provides a first
+    name at no cost and the Messages step requires recipient names.
+    """
+    httpx_mock.add_response(
+        url=PEOPLE_SEARCH_URL,
+        method="POST",
+        json={
+            "people": [
+                {
+                    "id": "p-1",
+                    "name": None,
+                    "first_name": "Phi",
+                    "last_name_obfuscated": "S***",
+                    "title": "Director of Retail",
+                    "has_email": True,
+                }
+            ]
+        },
+    )
+
+    contacts = _provider(reveal_emails=False).search_contacts(
+        Company(name="Acme", provider_id="org-1"), SearchCriteria(max_contacts_per_company=1)
+    )
+
+    assert contacts[0].full_name == "Phi"
+    # The hidden portion must not appear in the name: "Phi S***" looks real.
+    assert "*" not in contacts[0].full_name
+
+
+def test_full_name_is_preferred_when_apollo_returns_it(httpx_mock):
+    """After reveal (or on a higher plan), Apollo returns the full `name`; prefer it."""
+    httpx_mock.add_response(
+        url=PEOPLE_SEARCH_URL,
+        method="POST",
+        json={
+            "people": [
+                {"id": "p-1", "name": "Nguyen Van Phi", "first_name": "Phi", "title": "CEO"}
+            ]
+        },
+    )
+
+    contacts = _provider(reveal_emails=False).search_contacts(
+        Company(name="Acme", provider_id="org-1"), SearchCriteria(max_contacts_per_company=1)
+    )
+
+    assert contacts[0].full_name == "Nguyen Van Phi"

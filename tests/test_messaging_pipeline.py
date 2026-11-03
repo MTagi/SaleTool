@@ -1,7 +1,7 @@
-"""Test phần code của bước sinh message.
+"""Test the code for the message-generation step.
 
-Trọng tâm là `validate_message`: đó là chỗ bắt các lỗi mà prompt không chặn được
-— vượt giới hạn ký tự của LinkedIn (gửi không được), và placeholder còn sót.
+Focus on `validate_message`, which catches errors the prompt cannot prevent:
+exceeding LinkedIn's character limit (the message cannot be sent) and leftover placeholders.
 """
 
 import asyncio
@@ -71,7 +71,7 @@ def _sender() -> SenderProfile:
 GOOD_BODY = "Hi Lan, I noticed Acme still closes the books by hand across three plants. Worth a quick look?"
 
 
-# --- Kiểm tra ràng buộc kênh gửi --------------------------------------------
+# --- Channel constraints ----------------------------------------------------
 
 
 def test_clean_email_produces_no_warnings():
@@ -91,7 +91,7 @@ def test_long_email_is_flagged_by_word_count():
 
 
 def test_linkedin_note_over_the_hard_limit_says_it_cannot_be_sent():
-    """300 ký tự là giới hạn của LinkedIn, không phải sở thích — vượt là gửi trượt."""
+    """300 characters is LinkedIn's limit, not a preference; longer messages cannot be sent."""
     body = "Hi Lan, " + "x" * 400
     warnings = validate_message(
         _message(body, channel="linkedin_connection", subject=None),
@@ -102,7 +102,7 @@ def test_linkedin_note_over_the_hard_limit_says_it_cannot_be_sent():
 
 
 def test_linkedin_note_over_the_free_account_limit_is_a_softer_warning():
-    body = "Hi Lan, " + "x" * 240  # >200 (free) nhưng <300 (trả phí)
+    body = "Hi Lan, " + "x" * 240  # >200 (free) but <300 (paid).
     warnings = validate_message(
         _message(body, channel="linkedin_connection", subject=None),
         MESSAGE_CHANNELS["linkedin_connection"],
@@ -130,7 +130,7 @@ def test_overlong_subject_is_flagged():
     assert any("Subject is 120" in w for w in warnings)
 
 
-# --- Bắt dấu vết model chưa điền xong ---------------------------------------
+# --- Detect unfinished model output ----------------------------------------
 
 
 def test_square_bracket_placeholder_is_caught():
@@ -155,6 +155,33 @@ def test_model_talking_about_itself_is_caught():
     assert any("model talking about itself" in w for w in warnings)
 
 
+def test_a_human_ai_engineer_is_not_mistaken_for_the_model():
+    """The real sender profile here has the title "AI Engineer".
+
+    Found in the 2026-09-04 test run: every email draft triggered a "model talking
+    about itself" warning because of "I am an AI engineer at Abim Software" — a
+    perfectly normal statement from a real person. If a warning always appears,
+    users stop reading them, even when they are correct.
+    """
+    for text in (
+        "Hi Lan, I am an AI engineer at Abim Software and we build video analytics.",
+        "Hi Lan, as an AI engineer I have shipped three of these.",
+    ):
+        warnings = validate_message(_message(text), MESSAGE_CHANNELS["email"])
+        assert not any("model talking about itself" in w for w in warnings), text
+
+
+def test_real_model_leakage_is_still_caught():
+    """Narrowing the pattern must not miss real leakage phrases."""
+    for text in (
+        "Hi Lan, as an AI I cannot browse the web.",
+        "Hi Lan, I am an AI assistant built to help you.",
+        "Hi Lan, I'm an AI language model and cannot do that.",
+    ):
+        warnings = validate_message(_message(text), MESSAGE_CHANNELS["email"])
+        assert any("model talking about itself" in w for w in warnings), text
+
+
 def test_no_personalisation_reported_is_flagged():
     warnings = validate_message(
         _message(GOOD_BODY, personalization_used=[]), MESSAGE_CHANNELS["email"]
@@ -169,7 +196,7 @@ def test_not_addressing_the_contact_is_flagged():
     assert any("by name" in w for w in warnings)
 
 
-# --- Dựng brief -------------------------------------------------------------
+# --- Build the brief --------------------------------------------------------
 
 
 def test_sender_brief_includes_the_signature_instruction():
@@ -189,7 +216,7 @@ def test_prospect_brief_says_so_when_nothing_is_known():
 
 
 def test_prospect_brief_carries_the_matching_rationale():
-    """Lý do chấm điểm ở bước matching chính là chất liệu cho câu mở đầu."""
+    """The matching rationale is material for the opening sentence."""
     match = CompanyMatch(
         company_name="Acme",
         summary="Closes books manually across three plants.",
@@ -360,8 +387,8 @@ def test_the_fit_rationale_for_the_chosen_service_is_passed_through(monkeypatch)
 
 
 def test_generation_uses_some_temperature_even_when_settings_say_zero(monkeypatch):
-    """Temperature 0 khiến mọi contact nhận gần như cùng một câu chữ — đúng thứ
-    làm outreach bị đánh dấu spam."""
+    """Temperature 0 gives every contact nearly identical wording, which makes
+    outreach look like spam."""
     captured = {}
 
     async def capture(settings, payload, timeout=None):

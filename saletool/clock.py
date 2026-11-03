@@ -1,29 +1,29 @@
-"""Nguồn thời gian duy nhất cho các mốc `created_at` được dùng để sắp xếp.
+"""Single source of timestamps for sortable `created_at` values.
 
-Vì sao cần cả một module cho việc gọi `datetime.now()`:
+Why a separate module is needed for `datetime.now()`:
 
-`datetime.now()` trên Windows lấy giờ từ đồng hồ hệ thống có bước nhảy ~15,6ms.
-Đo trên chính máy dev của dự án: **2000 lần gọi liên tiếp chỉ ra 2 giá trị khác
-nhau**, có nhóm 1333 lần cho ra đúng cùng một chuỗi ISO. Nên hai bản ghi lưu
-cách nhau vài mili-giây gần như chắc chắn mang `created_at` y hệt.
+On Windows, `datetime.now()` reads a system clock with ~15.6 ms increments.
+Measured on this project's development machine: **2,000 consecutive calls produced
+only 2 distinct values**, with a run of 1,333 calls returning the same ISO string.
+Records saved milliseconds apart are therefore very likely to share `created_at`.
 
-Hậu quả không chỉ là test chớp tắt: `ORDER BY created_at DESC` khi hai dòng
-bằng nhau thì thứ tự do engine tự quyết — trang History có thể xếp sai, và
-`/api/download` không kèm `run_id` (lấy "lần chạy gần nhất") có thể trả về đúng
-cái cũ hơn.
+This causes more than flaky tests: when timestamps match, `ORDER BY created_at DESC`
+leaves ordering up to the database engine. The History page can be misordered, and
+`/api/download` without `run_id` (which returns the "most recent run") can return
+an older run.
 
-Cách xử lý: phát ra chuỗi ISO **tăng nghiêm ngặt**. Nếu đồng hồ chưa nhích qua
-giá trị vừa phát, cộng thêm 1 micro-giây. Sai số tối đa bằng số bản ghi ghi
-trong một tick (micro-giây), không ai nhìn thấy được, nhưng đủ để thứ tự trở
-nên xác định.
+The fix is to emit strictly increasing ISO strings. If the clock has not advanced
+beyond the last value, add one microsecond. The maximum drift is one microsecond
+per record written within a clock tick: imperceptible, but enough to make ordering
+deterministic.
 
-Sửa ở đây thay vì thêm cột tiebreaker vì đó là cách duy nhất chữa được **cả
-hai** backend: SQLite còn có `rowid` để bấu víu, còn Mongo dùng `_id` là UUID
-ngẫu nhiên nên không có khoá nào mang thứ tự chèn.
+Fixing timestamps here avoids adding a tiebreaker column and works for **both**
+backends: SQLite has `rowid`, but Mongo uses random UUIDs for `_id` and has no
+insertion-order key to rely on.
 
-Giới hạn cần biết: đơn điệu trong phạm vi **một tiến trình**. Chạy nhiều tiến
-trình cùng ghi vào một DB thì vẫn có thể trùng — chấp nhận được với một tool
-nội bộ chạy một server, và với SQLite thì tiebreaker `rowid` vẫn đỡ được.
+The guarantee applies within **one process**. Multiple processes writing to the
+same database can still collide. This is acceptable for an internal tool running
+one server; SQLite's `rowid` remains a fallback tiebreaker.
 """
 
 from __future__ import annotations
@@ -33,14 +33,14 @@ from datetime import datetime, timedelta, timezone
 
 _ONE_MICROSECOND = timedelta(microseconds=1)
 
-# Khoá vì FastAPI chạy route `def` (không async) trong threadpool — hai request
-# có thể vào đây cùng lúc thật.
+# Lock because FastAPI runs synchronous (`def`) routes in a thread pool, where two
+# requests can enter this function concurrently.
 _lock = threading.Lock()
 _last: datetime | None = None
 
 
 def now() -> datetime:
-    """Giờ UTC hiện tại, đảm bảo lớn hơn nghiêm ngặt mọi giá trị đã phát trước đó."""
+    """Return the current UTC time, strictly greater than every previously emitted value."""
     global _last
 
     with _lock:
@@ -52,5 +52,5 @@ def now() -> datetime:
 
 
 def now_iso() -> str:
-    """Như `now()` nhưng trả chuỗi ISO-8601 — dạng đang lưu trong DB."""
+    """Like `now()`, but return an ISO-8601 string, the format stored in the database."""
     return now().isoformat()

@@ -1,5 +1,5 @@
-"""/api/search, /api/search/runs, /api/download/{fmt} — chạy pipeline tìm
-công ty + liên hệ cấp cao, và lịch sử các lần chạy trước đó."""
+"""/api/search, /api/search/runs, /api/download/{fmt} — run company/senior-contact
+search and retrieve previous run history."""
 
 from __future__ import annotations
 
@@ -8,9 +8,17 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from starlette.concurrency import run_in_threadpool
 
 from saletool.api.deps import get_current_user
-from saletool.db.factory import get_search_run_repository, get_settings_repository
+from saletool.db.factory import (
+    get_enrich_job_repository,
+    get_match_job_repository,
+    get_message_job_repository,
+    get_search_run_repository,
+    get_settings_repository,
+)
+from saletool.history import read_workflow_history
 from saletool.models import (
     DATA_PROVIDERS,
     DATA_PROVIDERS_REQUIRING_KEY,
@@ -21,23 +29,26 @@ from saletool.models import (
 from saletool.output import write_csv, write_json
 from saletool.pipeline import run_search
 from saletool.providers import get_provider
+from saletool.title_expansion import expand_titles
 
 router = APIRouter(prefix="/api", tags=["search"])
 
 
 @router.get("/search/options")
 def search_options(_: str = Depends(get_current_user)) -> dict:
-    """Các mức seniority hợp lệ, phục vụ form tìm kiếm.
+    """Valid seniority levels for the search form.
 
-    Trả từ backend thay vì chép cứng ở frontend: danh sách này là quy ước của
-    `saletool/seniority.py`, chép sang JS nghĩa là có hai bản phải nhớ sửa cùng lúc.
+    Return them from the backend instead of hardcoding them in the frontend: this
+    list is defined in `saletool/seniority.py`, and duplicating it in JS would
+    require keeping two copies in sync.
     """
     return {
+        "enabled_search_fields": get_settings_repository().get_settings().data_source.enabled_search_fields,
         "seniority_levels": SENIORITY_LEVELS,
         "default_senior_levels": DEFAULT_SENIOR_LEVELS,
         "data_providers": DATA_PROVIDERS,
-        # Frontend cần biết provider nào đòi key để nói đúng cái đang thiếu ngay
-        # dưới ô chọn, thay vì đoán rằng nguồn nào cũng cần key.
+        # The frontend needs to know which providers require a key so it can
+        # explain what is missing below the selector instead of assuming all do.
         "data_providers_requiring_key": DATA_PROVIDERS_REQUIRING_KEY,
     }
 
@@ -54,35 +65,52 @@ def _parse_optional_int(value: str) -> int | None:
 @router.post("/search")
 async def search(request: Request, user: str = Depends(get_current_user)) -> dict:
     form = await request.form()
+    settings = get_settings_repository().get_settings()
+    data_source = settings.data_source
+    enabled_fields = set(data_source.enabled_search_fields)
 
     def field(name: str, default: str = "") -> str:
         value = form.get(name, default)
         return value if isinstance(value, str) else default
 
     seniority_levels = [v for v in form.getlist("seniority_levels") if isinstance(v, str)]
+    if "seniority_levels" not in enabled_fields:
+        selected_seniority_levels = []
+    elif field("seniority_filter_present") == "true":
+        selected_seniority_levels = seniority_levels
+    else:
+        selected_seniority_levels = seniority_levels or list(DEFAULT_SENIOR_LEVELS)
 
     try:
         criteria = SearchCriteria(
-            industries=_split_csv_field(field("industries")),
-            keywords=_split_csv_field(field("keywords")),
-            locations=_split_csv_field(field("locations")),
-            company_size_min=_parse_optional_int(field("company_size_min")),
-            company_size_max=_parse_optional_int(field("company_size_max")),
-            target_titles=_split_csv_field(field("target_titles")),
-            seniority_levels=seniority_levels or list(DEFAULT_SENIOR_LEVELS),
+            industries=_split_csv_field(field("industries")) if "industries" in enabled_fields else [],
+            keywords=_split_csv_field(field("keywords")) if "keywords" in enabled_fields else [],
+            locations=_split_csv_field(field("locations")) if "locations" in enabled_fields else [],
+            company_size_min=(
+                _parse_optional_int(field("company_size_min"))
+                if "company_size" in enabled_fields
+                else None
+            ),
+            company_size_max=(
+                _parse_optional_int(field("company_size_max"))
+                if "company_size" in enabled_fields
+                else None
+            ),
+            target_titles=(
+                _split_csv_field(field("target_titles")) if "target_titles" in enabled_fields else []
+            ),
+            seniority_levels=selected_seniority_levels,
             max_companies=int(field("max_companies", "20") or 20),
             max_contacts_per_company=int(field("max_contacts_per_company", "5") or 5),
         )
-    except Exception as exc:  # bắt rộng để trả lỗi input rõ ràng cho client
+    except Exception as exc:  # Broad catch to return a clear input error to the client.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid criteria: {exc}"
         ) from exc
 
-    # Nguồn dữ liệu + API key lấy từ Settings, không lấy từ form: đây là cấu hình
-    # một lần của cả đội và được lưu ở dạng mã hoá. Form chỉ còn giữ những thứ
-    # thay đổi theo từng lượt chạy (tiêu chí + có tra email hay không).
-    data_source = get_settings_repository().get_settings().data_source
-
+    # Get the data source and API key from Settings, not the form: this is a
+    # one-time team setting stored encrypted. The form only contains values that
+    # change per run (criteria and whether to look up emails).
     provider_name = field("data_provider") or data_source.provider
     if provider_name not in DATA_PROVIDERS:
         raise HTTPException(
@@ -107,21 +135,24 @@ async def search(request: Request, user: str = Depends(get_current_user)) -> dic
         provider_instance = get_provider(
             provider_name,
             api_key=data_source.api_key,
-            # Tra email tốn credit Apollo, nên phải tắt được từ form.
+            # Email lookup costs Apollo credits, so it must be possible to disable it in the form.
             reveal_emails=field("apollo_reveal_emails", "true") != "false",
         )
-        results = run_search(criteria, provider_instance)
-    except Exception as exc:  # bắt rộng để trả lỗi rõ ràng thay vì 500 trắng
+        criteria.expanded_target_titles, criteria.title_expansion_status = await expand_titles(criteria.target_titles, settings.llm)
+        results = await run_in_threadpool(run_search, criteria, provider_instance)
+    except Exception as exc:  # Broad catch to return a clear error instead of a blank 500.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Search failed: {exc}"
         ) from exc
 
-    # api_key không nằm trong `criteria` nên không bao giờ bị lưu vào lịch sử.
+    # api_key is not part of `criteria`, so it is never saved in history.
     run = get_search_run_repository().save_run(
         username=user, provider=provider_name, criteria=criteria, results=results
     )
 
     return {
+        "expanded_target_titles": criteria.expanded_target_titles,
+        "title_expansion_status": criteria.title_expansion_status,
         "run_id": run.id,
         "created_at": run.created_at,
         "provider": run.provider,
@@ -143,6 +174,28 @@ def get_run(run_id: str, user: str = Depends(get_current_user)) -> dict:
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search run not found.")
     return run.model_dump()
+
+
+@router.delete("/search/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_run(run_id: str, user: str = Depends(get_current_user)):
+    # Delete a search run and its enrichment/matching/messaging jobs. Keep older
+    # jobs without run_id (manual/legacy) because they may belong to other history.
+    repo = get_search_run_repository()
+    if not repo.get_run(user, run_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search run not found.")
+    for job_repo in (
+        get_enrich_job_repository(),
+        get_match_job_repository(),
+        get_message_job_repository(),
+    ):
+        job_repo.delete_for_run(user, run_id)
+    repo.delete_run(user, run_id)
+@router.get("/search/runs/{run_id}/history")
+def get_history(run_id: str, user: str = Depends(get_current_user)) -> dict:
+    run = get_search_run_repository().get_run(user, run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search run not found.")
+    return read_workflow_history(run)
 
 
 @router.get("/download/{fmt}")

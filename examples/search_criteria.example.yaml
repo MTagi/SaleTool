@@ -1,5 +1,5 @@
-# Input format mô tả mục tiêu tìm kiếm công ty.
-# Xem saletool/models.py (SearchCriteria) để biết đầy đủ các trường.
+# Input format describing company search criteria.
+# See saletool/models.py (SearchCriteria) for all available fields.
 
 industries:
   - Software

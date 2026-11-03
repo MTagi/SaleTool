@@ -24,8 +24,8 @@ export function useStatus() {
       .finally(() => setLoading(false));
   }, []);
 
-  // refresh giữ nguyên tham chiếu (useCallback []) nên effect này chỉ chạy
-  // một lần — không cần bản sao thứ hai của cùng đoạn fetch.
+  // refresh has a stable reference (useCallback []), so this effect runs only
+  // once; no second copy of the same fetch is needed.
   useEffect(() => {
     refresh();
   }, [refresh]);

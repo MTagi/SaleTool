@@ -1,12 +1,12 @@
-"""HTML -> text sạch, bằng trafilatura.
+"""Convert HTML to clean text using trafilatura.
 
-Đây là tầng quyết định chi phí LLM: HTML thô của 1 trang giới thiệu điển hình
-~150KB (~40.000 token), sau khi bóc còn ~4KB (~1.000 token). Chênh khoảng 40 lần.
-Không có tầng này thì mọi thứ phía sau đắt gấp hàng chục lần.
+This stage determines LLM costs: raw HTML for a typical company page is ~150 KB
+(~40,000 tokens), while extracted text is ~4 KB (~1,000 tokens), about 40x smaller.
+Without it, every downstream step costs dozens of times more.
 
-trafilatura được chọn vì có benchmark độc lập (không phải tự quảng cáo):
-F1 ~0.945 trên bộ article-extraction-benchmark của ScrapingHub, và có cơ chế
-fallback nhiều tầng (heuristic -> readability-lxml -> jusText) nên hiếm khi rỗng.
+trafilatura was selected based on independent benchmarks: F1 ~0.945 on
+ScrapingHub's article-extraction-benchmark, with multiple fallbacks (heuristics
+-> readability-lxml -> jusText), so it rarely returns empty content.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 def extract_text(html: str, url: str | None = None) -> str | None:
-    """Bóc nội dung chính. Trả về None nếu không lấy được gì đáng kể."""
+    """Extract the main content. Return None if nothing meaningful is found."""
     if not html:
         return None
 
     try:
         import trafilatura
     except ImportError:
-        logger.error("Chưa cài trafilatura — pip install trafilatura")
+        logger.error("trafilatura is not installed — pip install trafilatura")
         return None
 
     try:
@@ -33,11 +33,11 @@ def extract_text(html: str, url: str | None = None) -> str | None:
             url=url,
             include_comments=False,
             include_tables=True,
-            favor_recall=True,  # trang /about, /team thường ngắn — ưu tiên không bỏ sót
+            favor_recall=True,  # /about and /team pages are often short; prioritize recall.
             no_fallback=False,
         )
-    except Exception as exc:  # noqa: BLE001 - HTML lỗi không được làm sập job
-        logger.debug("trafilatura lỗi ở %s: %s", url, exc)
+    except Exception as exc:  # noqa: BLE001 - Invalid HTML must not fail the job.
+        logger.debug("trafilatura failed at %s: %s", url, exc)
         return None
 
     if not text:
@@ -48,7 +48,7 @@ def extract_text(html: str, url: str | None = None) -> str | None:
 
 
 def truncate_for_llm(text: str, max_chars: int = 12000) -> str:
-    """Cắt bớt trước khi đưa vào LLM để chặn trần chi phí trên các trang bất thường."""
+    """Truncate before sending to the LLM to cap costs for unusually long pages."""
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "\n…[truncated]"

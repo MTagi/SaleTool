@@ -1,4 +1,4 @@
-"""Cấp phát và xác minh JWT access token cho API (Bearer auth cho React SPA)."""
+"""Issue and verify JWT access tokens for the API (Bearer auth for the React SPA)."""
 
 from __future__ import annotations
 
@@ -15,14 +15,14 @@ from saletool.security import verify_password
 logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
-EXPIRE_SECONDS = 12 * 3600  # 12 giờ
+EXPIRE_SECONDS = 12 * 3600  # 12 hours
 
 _secret_key_cache: str | None = None
 
 
 def _get_secret_key() -> str:
-    """Đọc SALETOOL_SECRET_KEY; nếu chưa đặt, sinh 1 khoá tạm cho tiến trình
-    hiện tại (token sẽ hết hiệu lực nếu server restart)."""
+    """Read SALETOOL_SECRET_KEY; if unset, generate a process-local temporary key
+    (tokens will expire when the server restarts)."""
 
     global _secret_key_cache
     if _secret_key_cache:
@@ -32,9 +32,9 @@ def _get_secret_key() -> str:
     if not key:
         key = secrets.token_hex(32)
         logger.warning(
-            "SALETOOL_SECRET_KEY chưa được đặt — dùng khoá tạm thời, tất cả "
-            "token sẽ mất hiệu lực khi restart server. Đặt biến môi trường "
-            "SALETOOL_SECRET_KEY để phiên đăng nhập ổn định."
+            "SALETOOL_SECRET_KEY is not set; using a temporary key, so all "
+            "tokens will expire when the server restarts. Set the "
+            "SALETOOL_SECRET_KEY environment variable for stable sessions."
         )
     _secret_key_cache = key
     return key

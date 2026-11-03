@@ -1,11 +1,12 @@
-"""Chọn implementation repository theo biến môi trường SALETOOL_DB_BACKEND.
+"""Select a repository implementation using the SALETOOL_DB_BACKEND environment variable.
 
-Mặc định: sqlite. Đổi sang Mongo sau này chỉ cần set
-SALETOOL_DB_BACKEND=mongo (+ SALETOOL_MONGO_URI, SALETOOL_MONGO_DB) mà không
-phải sửa route hay logic auth/search/enrich nào.
+Default: sqlite. To switch to MongoDB, set SALETOOL_DB_BACKEND=mongo (plus
+SALETOOL_MONGO_URI and SALETOOL_MONGO_DB); no route or auth/search/enrichment
+logic needs to change.
 
-Import module implementation được hoãn tới lúc gọi: `mongo_repo` cần pymongo,
-một dependency tuỳ chọn, nên import ở đầu file sẽ làm hỏng cài đặt mặc định.
+Implementation modules are imported only when called: `mongo_repo` requires
+pymongo, an optional dependency, so importing it at module load would break the
+default installation.
 """
 
 from __future__ import annotations
@@ -42,11 +43,10 @@ def _mongo_config() -> tuple[str, str]:
 
 
 def _select(sqlite_name: str, mongo_name: str) -> Callable[[], T]:
-    """Dựng repository theo backend đang bật.
+    """Build a repository for the selected backend.
 
-    Nhận **tên lớp** chứ không nhận lớp: tên lớp chỉ được tra cứu trong module
-    tương ứng sau khi đã chọn backend, nên `pymongo` không bị import khi chạy
-    SQLite.
+    Accept a **class name**, not a class: the class is looked up in the selected
+    module, so `pymongo` is not imported when using SQLite.
     """
     backend = _backend()
 
@@ -60,7 +60,7 @@ def _select(sqlite_name: str, mongo_name: str) -> Callable[[], T]:
 
         return getattr(mongo_repo, mongo_name)(*_mongo_config())
 
-    raise ValueError(f"Không hỗ trợ DB backend: '{backend}' (chỉ hỗ trợ 'sqlite' hoặc 'mongo')")
+    raise ValueError(f"Unsupported database backend: '{backend}' (supported: 'sqlite' or 'mongo')")
 
 
 def get_user_repository() -> UserRepository:

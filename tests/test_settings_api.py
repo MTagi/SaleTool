@@ -25,7 +25,7 @@ def _valid_payload(**overrides) -> dict:
             "temperature": 0.0,
             "max_output_tokens": 2048,
         },
-        "search": {"provider": "none", "api_key": None, "searxng_url": None, "max_results": 5},
+        "search": {"provider": "none", "api_key": None, "max_results": 5},
         "enrichment": {
             "use_structured_data": True,
             "use_company_website": True,
@@ -55,7 +55,34 @@ def test_defaults_returned_when_never_saved(client):
     body = resp.json()
     assert body["settings"]["search"]["provider"] == "none"
     assert body["settings"]["llm"]["api_key"] is None
-    assert "searxng" in body["options"]["search_providers"]
+    assert body["options"]["search_providers"] == [
+        "none", "tavily", "exa", "codex", "serper", "brave"
+    ]
+    assert set(body["settings"]["data_source"]["enabled_search_fields"]) == set(
+        body["options"]["apollo_search_fields"]
+    )
+
+
+def test_can_choose_and_persist_apollo_search_fields(client):
+    headers = auth(client)
+    payload = client.get("/api/settings", headers=headers).json()["settings"]
+    payload["data_source"]["enabled_search_fields"] = ["locations", "target_titles"]
+
+    response = client.put("/api/settings", headers=headers, json=payload)
+
+    assert response.status_code == 200
+    saved = client.get("/api/settings", headers=headers).json()["settings"]
+    assert saved["data_source"]["enabled_search_fields"] == ["locations", "target_titles"]
+
+
+def test_rejects_unknown_apollo_search_field(client):
+    headers = auth(client)
+    payload = client.get("/api/settings", headers=headers).json()["settings"]
+    payload["data_source"]["enabled_search_fields"] = ["unknown_filter"]
+
+    response = client.put("/api/settings", headers=headers, json=payload)
+
+    assert response.status_code == 422
 
 
 def test_api_key_is_never_returned_in_clear(client):
@@ -69,6 +96,21 @@ def test_api_key_is_never_returned_in_clear(client):
     assert body["settings"]["llm"]["api_key_set"] is True
 
 
+def test_first_setup_can_save_apollo_without_llm(client):
+    headers = auth(client)
+    payload = client.get("/api/settings", headers=headers).json()["settings"]
+    assert payload["enrichment"]["use_llm"] is False
+    for name in ("data_source", "llm", "search"):
+        payload[name].pop("api_key_set", None)
+    payload["data_source"]["api_key"] = "apollo-first-setup-test"
+    response = client.put("/api/settings", headers=headers, json=payload)
+    assert response.status_code == 200
+    saved = client.get("/api/settings", headers=headers).json()["settings"]
+    assert saved["data_source"]["api_key_set"] is True
+    assert saved["llm"]["api_key_set"] is False
+    assert "apollo-first-setup-test" not in response.text
+
+
 def resp_text(payload) -> str:
     import json
 
@@ -79,7 +121,7 @@ def test_masked_sentinel_keeps_existing_key(client):
     headers = auth(client)
     client.put("/api/settings", headers=headers, json=_valid_payload())
 
-    # Lưu lại mà không sửa key -> key cũ phải được giữ nguyên.
+    # Saving without changing the key must preserve the old key.
     payload = _valid_payload()
     payload["llm"]["api_key"] = MASKED_SECRET
     payload["llm"]["model"] = "meta-llama/llama-3.3-70b-instruct"
@@ -103,7 +145,7 @@ def test_resending_the_mask_also_keeps_existing_key(client):
 
 def test_rejects_paid_search_provider_without_key(client):
     payload = _valid_payload()
-    payload["search"] = {"provider": "brave", "api_key": None, "searxng_url": None, "max_results": 5}
+    payload["search"] = {"provider": "brave", "api_key": None, "max_results": 5}
 
     resp = client.put("/api/settings", headers=auth(client), json=payload)
 
@@ -111,19 +153,30 @@ def test_rejects_paid_search_provider_without_key(client):
     assert "API key" in resp.json()["detail"]
 
 
-def test_rejects_searxng_without_url(client):
+def test_codex_saves_without_a_key_and_keeps_endpoint_plus_model(client):
+    """`codex` is the only search provider that can run without an API key:
+    local 9Router does not enable REQUIRE_API_KEY by default. Requiring one here
+    would incorrectly block this setup."""
     payload = _valid_payload()
-    payload["search"] = {"provider": "searxng", "api_key": None, "searxng_url": None, "max_results": 5}
+    payload["search"] = {
+        "provider": "codex",
+        "api_key": None,
+        "base_url": "http://9router:20128/v1",
+        "model": "cx/gpt-5.4",
+        "max_results": 5,
+    }
 
     resp = client.put("/api/settings", headers=auth(client), json=payload)
 
-    assert resp.status_code == 400
-    assert "instance URL" in resp.json()["detail"]
+    assert resp.status_code == 200
+    saved = resp.json()["settings"]["search"]
+    assert saved["base_url"] == "http://9router:20128/v1"
+    assert saved["model"] == "cx/gpt-5.4"
 
 
 def test_rejects_web_search_enabled_with_no_provider(client):
     payload = _valid_payload()
-    payload["enrichment"]["use_web_search"] = True  # search.provider vẫn là "none"
+    payload["enrichment"]["use_web_search"] = True  # search.provider remains "none".
 
     resp = client.put("/api/settings", headers=auth(client), json=payload)
 
@@ -141,7 +194,7 @@ def test_rejects_llm_enabled_without_key(client):
 
 def test_rejects_unknown_search_provider(client):
     payload = _valid_payload()
-    payload["search"] = {"provider": "hax0r", "api_key": "k", "searxng_url": None, "max_results": 5}
+    payload["search"] = {"provider": "hax0r", "api_key": "k", "max_results": 5}
 
     resp = client.put("/api/settings", headers=auth(client), json=payload)
     assert resp.status_code == 400
@@ -160,10 +213,10 @@ def test_settings_persist_across_requests(client):
 
 
 def test_saving_a_key_without_secret_key_returns_a_clear_error(tmp_path, monkeypatch):
-    """Thiếu SALETOOL_SECRET_KEY thì không mã hoá được API key.
+    """Without SALETOOL_SECRET_KEY, API keys cannot be encrypted.
 
-    Trước đây RuntimeError lọt ra ngoài thành 500 trống, người dùng không biết
-    phải làm gì — dù thông báo trong exception đã hướng dẫn sẵn cách sinh khoá.
+    Previously RuntimeError escaped as a blank 500, leaving users unsure what to
+    do even though the exception included instructions for generating a key.
     """
     db_path = tmp_path / "no_secret.db"
     monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")

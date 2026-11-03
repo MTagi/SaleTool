@@ -1,14 +1,14 @@
-/** Định dạng message sinh ra để dán ra ngoài. */
+/** Format a generated message for pasting elsewhere. */
 
 /**
- * Subject và body gộp thành một khối, đúng như khi dán vào mail client.
- * Message không có subject (LinkedIn, WhatsApp) chỉ trả về body.
+ * Combine the subject and body into one block, ready to paste into an email client.
+ * Messages without a subject (LinkedIn, WhatsApp) return only the body.
  */
 export function messageToText(message) {
   return message.subject ? `${message.subject}\n\n${message.body}` : message.body;
 }
 
-/** Nhiều message nối lại, mỗi cái có tiêu đề để biết của ai. */
+/** Join multiple messages, labeling each one with its recipient. */
 export function messagesToText(messages) {
   return messages
     .filter((message) => !message.error)

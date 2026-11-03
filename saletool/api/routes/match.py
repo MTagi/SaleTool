@@ -1,4 +1,4 @@
-"""/api/match — chấm 1 lần search đã lưu với các dịch vụ được chọn, chạy ở nền."""
+"""/api/match — score a saved search run against selected services in the background."""
 
 from __future__ import annotations
 
@@ -16,18 +16,18 @@ from saletool.models import MatchRequest
 
 router = APIRouter(prefix="/api/match", tags=["match"])
 
-# Mỗi công ty tốn 1 lượt gọi LLM. Chặn ở đây để một lần bấm nhầm không đốt hết
-# hạn mức API.
+# Each company costs one LLM call. Limit requests here so an accidental click
+# cannot consume the entire API quota.
 MAX_COMPANIES_PER_JOB = 100
 MAX_SERVICES_PER_JOB = 20
 
 
 @router.post("")
 async def start_match(payload: MatchRequest, user: str = Depends(get_current_user)) -> dict:
-    """Tạo job matching. Trả về ngay, client poll trạng thái.
+    """Create a matching job. Return immediately; the client polls status.
 
-    Phải là `async def` — xem ghi chú ở routes/enrich.py: handler đồng bộ chạy
-    trong threadpool, ở đó `asyncio.create_task` sẽ lỗi "no running event loop".
+    Must be `async def`; see routes/enrich.py: synchronous handlers run in a
+    thread pool, where `asyncio.create_task` fails with "no running event loop".
     """
     settings = get_settings_repository().get_settings()
     if not settings.llm.api_key:

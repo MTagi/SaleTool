@@ -9,131 +9,172 @@ import WebSearchSection from "../components/settings/WebSearchSection";
 import { useAppStatus } from "../context/StatusContext";
 import { toSavePayload } from "../lib/settings";
 
-/**
- * Cấu hình dùng chung cho cả hệ thống.
- *
- * Trang này chỉ còn ba việc: nạp settings, lưu settings, và xếp các mục ra màn
- * hình. Mỗi mục là một component riêng trong `components/settings/` — nó tự
- * dựng dòng tóm tắt của chính nó, nên tóm tắt không bao giờ lệch với các trường
- * nó mô tả, và mỗi mục chỉ chạm được vào lát cắt settings của mình.
- */
-export default function Settings() {
+const TABS = [
+  { id: "general", label: "General", icon: "M4 7h16M4 17h16M8 4v6M16 14v6", keywords: "readiness overview configuration" },
+  { id: "data", label: "Data source", icon: "M4 4h16v16H4zM4 9h16M9 9v11", keywords: "apollo api provider key" },
+  { id: "llm", label: "AI model", icon: "M12 3l3 6 6 3-6 3-3 6-3-6-6-3 6-3z", keywords: "llm openai model key endpoint" },
+  { id: "search", label: "Web search", icon: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14M15 15l6 6", keywords: "search provider tavily brave key" },
+  { id: "sender", label: "Sender profile", icon: "M16 7a4 4 0 1 0-8 0 4 4 0 0 0 8 0M4 21v-2a8 8 0 0 1 16 0v2", keywords: "name company email phone signature messages" },
+  { id: "enrichment", label: "Enrichment", icon: "M12 3l9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5", keywords: "sources social linkedin" },
+  { id: "crawling", label: "Crawling", icon: "M3 4h18v16H3zM3 9h18M7 6h1M11 6h1M7 13h10M7 16h6", keywords: "website pages timeout" },
+];
+
+export default function Settings({ onClose }) {
   const { status, refresh: refreshStatus } = useAppStatus();
   const [settings, setSettings] = useState(null);
   const [options, setOptions] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [activeTab, setActiveTab] = useState("general");
+  const [query, setQuery] = useState("");
+  const tabs = TABS.filter(tab => (tab.label + " " + tab.keywords).toLowerCase().includes(query.trim().toLowerCase()));
+  const selected = tabs.find(tab => tab.id === activeTab) || tabs[0];
 
   useEffect(() => {
-    api
-      .getSettings()
-      .then((data) => {
-        setSettings(data.settings);
-        setOptions(data.options);
-      })
-      .catch((err) => setError(err.message || "Couldn't load settings."));
+    // B?o v? thay ??i ch?a l?u khi chuy?n trang b?ng sidebar ho?c t?i l?i.
+    function guardNavigation(event) {
+      const target = event.target.closest(".app-sidebar a, .app-sidebar button");
+      if (!target || event.defaultPrevented) return;
+      if (target.tagName === "A" && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) return;
+      if (target.getAttribute("href") === "/settings") return;
+      if (saving || (dirty && !window.confirm("You have unsaved changes. Discard them and leave Settings?"))) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    function guardUnload(event) {
+      if (!dirty && !saving) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    document.addEventListener("click", guardNavigation, true);
+    window.addEventListener("beforeunload", guardUnload);
+    return () => {
+      document.removeEventListener("click", guardNavigation, true);
+      window.removeEventListener("beforeunload", guardUnload);
+    };
+  }, [dirty, saving]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getSettings().then(data => {
+      if (!cancelled) { setSettings(data.settings); setOptions(data.options); }
+    }).catch(err => { if (!cancelled) setError(err.message || "Couldn't load settings."); });
+    return () => { cancelled = true; };
   }, []);
 
-  /** Trộn một patch vào đúng một mục. Mỗi section chỉ được đưa hàm của mục nó. */
+  function close() {
+    if (saving) return;
+    if (dirty) setConfirmClose(true);
+    else onClose();
+  }
+
   function patchSection(name, patch) {
-    setSettings((current) => ({ ...current, [name]: { ...current[name], ...patch } }));
+    setSettings(current => ({ ...current, [name]: { ...current[name], ...patch } }));
+    setDirty(true);
+    setSuccess(null);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (saving || !settings) return;
     setError(null);
     setSuccess(null);
     setSaving(true);
-
     try {
       const saved = await api.saveSettings(toSavePayload(settings));
       setSettings(saved.settings);
+      setDirty(false);
+      setConfirmClose(false);
       setSuccess("Settings saved.");
-      // Thêm LLM key hoặc sender profile là mở khoá các bước sau — dải 5 bước
-      // và các banner điều kiện phải biết ngay.
       refreshStatus();
     } catch (err) {
       setError(err.message || "Couldn't save settings.");
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   }
 
-  if (!settings) {
-    return (
-      <main className="container">
-        <h1>Settings</h1>
-        {error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}
-      </main>
-    );
+  function navigateTabs(event, index) {
+    let next;
+    if (["ArrowDown", "ArrowRight"].includes(event.key)) next = (index + 1) % tabs.length;
+    if (["ArrowUp", "ArrowLeft"].includes(event.key)) next = (index + tabs.length - 1) % tabs.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabs.length - 1;
+    if (next === undefined) return;
+    event.preventDefault();
+    setActiveTab(tabs[next].id);
+    document.getElementById("settings-tab-" + tabs[next].id)?.focus();
   }
+
+  const sections = settings ? {
+    data: <DataSourceSection needsSave={dirty} value={settings.data_source} options={options} onChange={p => patchSection("data_source", p)} />,
+    llm: <LlmSection needsSave={dirty} value={settings.llm} options={options} onChange={p => patchSection("llm", p)} />,
+    search: <WebSearchSection needsSave={dirty} value={settings.search} options={options} onChange={p => patchSection("search", p)} />,
+    sender: <SenderSection value={settings.sender} onChange={p => patchSection("sender", p)} />,
+    enrichment: <EnrichmentSourcesSection value={settings.enrichment} onChange={p => patchSection("enrichment", p)} />,
+    crawling: <CrawlingSection value={settings.enrichment} onChange={p => patchSection("enrichment", p)} />,
+  } : {};
 
   return (
-    <main className="container">
-      <h1>Settings</h1>
-      <p className="lede">
-        Applies to everyone using this instance. API keys are encrypted before they are stored and
-        are never sent back to the browser.
-      </p>
-
-      {error && <p className="error">{error}</p>}
-      {success && <p className="success">{success}</p>}
-
-      <div className="cols">
-        <form id="settings-form" onSubmit={handleSubmit}>
-          <DataSourceSection
-            value={settings.data_source}
-            options={options}
-            onChange={(patch) => patchSection("data_source", patch)}
-          />
-          <LlmSection
-            value={settings.llm}
-            options={options}
-            onChange={(patch) => patchSection("llm", patch)}
-          />
-          <WebSearchSection
-            value={settings.search}
-            options={options}
-            onChange={(patch) => patchSection("search", patch)}
-          />
-          <SenderSection
-            value={settings.sender}
-            onChange={(patch) => patchSection("sender", patch)}
-          />
-          <EnrichmentSourcesSection
-            value={settings.enrichment}
-            onChange={(patch) => patchSection("enrichment", patch)}
-          />
-          <CrawlingSection
-            value={settings.enrichment}
-            onChange={(patch) => patchSection("enrichment", patch)}
-          />
-        </form>
-
-        <div className="rail">
-          <ReadinessPanel settings={settings} status={status} />
-
-          <button type="submit" form="settings-form" className="primary" disabled={saving}>
-            {saving ? "Saving…" : "Save settings"}
-          </button>
-
-          {settings.updated_at && (
-            <p className="muted small-note">
-              Last updated {new Date(settings.updated_at).toLocaleString()}
-              {settings.updated_by ? ` by ${settings.updated_by}` : ""}.
-            </p>
-          )}
+    <section className="settings-dialog settings-page" aria-label="Settings">
+      <div className="settings-shell">
+        <aside className="settings-sidebar">
+          <div className="settings-sidebar-heading">
+            <button type="button" className="settings-close" aria-label="Close settings" onClick={close} disabled={saving}>&times;</button>
+            <strong>Settings</strong>
+          </div>
+          <input className="settings-search" type="search" placeholder="Search settings" aria-label="Search settings"
+            value={query} onChange={e => setQuery(e.target.value)} />
+          <div className="settings-tabs" role="tablist" aria-label="Settings categories">
+            {tabs.map((tab, index) => (
+              <button key={tab.id} type="button" role="tab" id={"settings-tab-" + tab.id}
+                aria-selected={selected?.id === tab.id} aria-controls={"settings-panel-" + tab.id}
+                tabIndex={selected?.id === tab.id ? 0 : -1}
+                onKeyDown={e => navigateTabs(e, index)} onClick={() => setActiveTab(tab.id)}>
+                <span className="settings-tab-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={tab.icon} /></svg></span>{tab.label}
+              </button>
+            ))}
+          </div>
+          <p className="settings-sidebar-note">ABIM Sales Assistant<br />Shared workspace settings</p>
+        </aside>
+        <div className="settings-content">
+          <header className="settings-heading"><h1>{selected?.label || "Search settings"}</h1>
+            <p>Configure your workspace and connected services.</p></header>
+          <form id="settings-form" className="settings-body" onSubmit={handleSubmit}>
+            {error && <p className="error" role="alert">{error}</p>}
+            {success && <p className="success" role="status">{success}</p>}
+            {!settings && !error && <p className="muted" role="status">Loading settings...</p>}
+            {!selected && <p className="muted">No settings found. Try model, sender or search.</p>}
+            {selected && settings && <div role="tabpanel" id={"settings-panel-" + selected.id}
+              aria-labelledby={"settings-tab-" + selected.id} tabIndex={0}>
+              <fieldset disabled={saving} className="settings-fields">
+                {selected.id === "general" ? <>
+                  <p className="settings-intro">These settings apply to everyone using this instance. API keys are encrypted before storage and never sent back to the browser.</p>
+                  <ReadinessPanel settings={settings} status={status} />
+                  <p className="muted small-note">Choose a category on the left to manage providers, your sender profile and enrichment options.</p>
+                  {settings.updated_at && <p className="muted small-note">Last updated {new Date(settings.updated_at).toLocaleString()}{settings.updated_by ? " by " + settings.updated_by : ""}.</p>}
+                </> : sections[selected.id]}
+              </fieldset>
+            </div>}
+          </form>
+          <footer className="settings-footer">
+            {confirmClose ? <div className="settings-discard" role="alert">
+              <span>You have unsaved changes.</span>
+              <button type="button" onClick={() => setConfirmClose(false)}>Keep editing</button>
+              <button type="button" onClick={onClose}>Discard and close</button>
+            </div> : <span className="muted small-note">{dirty ? "Unsaved changes" : "Changes apply to this workspace."}</span>}
+            <button type="submit" form="settings-form" className="primary" disabled={saving || !settings || !dirty}>
+              {saving ? "Saving..." : "Save settings"}
+            </button>
+          </footer>
         </div>
       </div>
-    </main>
+    </section>
   );
 }
 
-/**
- * Cùng bốn điều kiện mà dải 5 bước ở trên đang kiểm, đọc từ cùng một nguồn
- * (`/api/status` + settings vừa lưu) — nên hai chỗ không bao giờ nói khác nhau.
- */
 function ReadinessPanel({ settings, status }) {
   const items = [
     {

@@ -1,11 +1,11 @@
-"""/api/settings — cấu hình LLM, công cụ search và pipeline enrich.
+"""/api/settings — configure the LLM, search tools, and enrichment pipeline.
 
-Phạm vi: cấu hình dùng chung cho cả hệ thống (không per-user), phù hợp tool nội
-bộ nhóm nhỏ. Mọi user đã đăng nhập đều xem/sửa được.
+Scope: configuration is system-wide (not per-user), suitable for a small internal
+tool. Any logged-in user can view and edit it.
 
-Nguyên tắc xử lý API key: **không bao giờ trả key thật về client**. Client nhận
-bản mask để hiển thị; khi lưu, nếu client gửi lại đúng sentinel MASKED_SECRET
-thì backend giữ nguyên key cũ.
+API key handling principle: **never return the real key to the client**. The
+client receives a masked value for display; on save, if it sends back the
+MASKED_SECRET sentinel, the backend preserves the existing key.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from saletool.crypto import mask
 from saletool.db.factory import get_settings_repository
 from saletool.enrichment.search import get_search_provider
 from saletool.models import (
+    APOLLO_SEARCH_FIELDS,
     DATA_PROVIDERS,
     DATA_PROVIDERS_REQUIRING_KEY,
     LLM_PROVIDERS,
@@ -48,7 +49,7 @@ class TestConnectionResponse(BaseModel):
 
 
 def _to_client_view(settings: AppSettings) -> dict:
-    """Chuyển sang dạng an toàn để gửi cho frontend: key thật -> bản mask."""
+    """Convert values to a safe format for the frontend: real keys become masked values."""
     payload = settings.model_dump(mode="json")
     payload["llm"]["api_key"] = mask(settings.llm.api_key)
     payload["search"]["api_key"] = mask(settings.search.api_key)
@@ -60,13 +61,13 @@ def _to_client_view(settings: AppSettings) -> dict:
 
 
 def _merge_secret(incoming: str | None, existing: str | None) -> str | None:
-    """Giữ key cũ nếu client không sửa (gửi lại sentinel hoặc bản mask)."""
+    """Keep the existing key if the client did not change it (sentinel or masked value)."""
     if incoming is None:
         return existing
     if incoming == MASKED_SECRET:
         return existing
     if incoming.startswith("•"):
-        # Client gửi lại nguyên bản mask -> coi như không đổi.
+        # If the client sends back the same mask, treat it as unchanged.
         return existing
     stripped = incoming.strip()
     return stripped or None
@@ -78,6 +79,7 @@ def read_settings(_: str = Depends(get_current_user)) -> dict:
     return {
         "settings": _to_client_view(settings),
         "options": {
+            "apollo_search_fields": APOLLO_SEARCH_FIELDS,
             "data_providers": DATA_PROVIDERS,
             "data_providers_requiring_key": DATA_PROVIDERS_REQUIRING_KEY,
             "llm_providers": LLM_PROVIDERS,
@@ -114,21 +116,17 @@ def write_settings(payload: AppSettings, user: str = Depends(get_current_user)) 
         payload.data_source.api_key, current.data_source.api_key
     )
 
-    # Cố ý KHÔNG bắt buộc data_source.api_key ở đây: người dùng phải lưu được
-    # settings trước khi có key (vd: mới dựng hệ thống, chưa mua Apollo). Thiếu
-    # key thì /api/status báo chưa cấu hình, trang Search chặn nút submit và
-    # /api/search trả 400 — chặn đúng chỗ cần chặn, không khoá luôn trang Settings.
+    # Deliberately do NOT require data_source.api_key here: users must be able to
+    # save Settings before they have a key (e.g. a new installation without an
+    # Apollo subscription). /api/status reports a missing key, Search disables
+    # submit, and /api/search returns 400 — block where needed without locking
+    # the Settings page.
 
-    # Chặn cấu hình bất khả thi ngay tại đây thay vì để enrich fail lúc chạy.
+    # Reject impossible configurations here instead of letting enrichment fail at runtime.
     if payload.search.provider in SEARCH_PROVIDERS_REQUIRING_KEY and not payload.search.api_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Search provider '{payload.search.provider}' requires an API key.",
-        )
-    if payload.search.provider == "searxng" and not payload.search.searxng_url:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SearXNG requires an instance URL (e.g. http://localhost:8080).",
         )
     if payload.enrichment.use_web_search and payload.search.provider == "none":
         raise HTTPException(
@@ -144,9 +142,9 @@ def write_settings(payload: AppSettings, user: str = Depends(get_current_user)) 
     try:
         saved = repo.save_settings(payload, updated_by=user)
     except RuntimeError as exc:
-        # Thiếu SALETOOL_SECRET_KEY thì không mã hoá được API key. Bản thân
-        # exception đã có hướng dẫn sinh khoá — đừng để nó thành 500 trống rỗng.
-        logger.error("Không lưu được settings: %s", exc)
+        # Without SALETOOL_SECRET_KEY, API keys cannot be encrypted. The
+        # exception includes key-generation instructions; do not return a blank 500.
+        logger.error("Could not save settings: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
@@ -158,7 +156,7 @@ def write_settings(payload: AppSettings, user: str = Depends(get_current_user)) 
 async def test_connection(
     payload: TestConnectionRequest, _: str = Depends(get_current_user)
 ) -> TestConnectionResponse:
-    """Gọi thật tới LLM/search bằng cấu hình đã lưu để người dùng biết nó có chạy không."""
+    """Make a real LLM/search call with saved settings so users know whether it works."""
     settings = get_settings_repository().get_settings()
 
     if payload.target == "llm":
@@ -175,10 +173,10 @@ async def test_connection(
 
 
 def _test_data_source(settings: AppSettings) -> TestConnectionResponse:
-    """Thử một lượt tìm công ty thật để biết key có dùng được không.
+    """Try a real company search to check whether the key works.
 
-    Chỉ gọi bước tìm công ty và `reveal_emails=False`: bước tra email mới là chỗ
-    Apollo trừ credit, không được phép tiêu tiền của người dùng chỉ để test.
+    Only run company search with `reveal_emails=False`: Apollo charges credits for
+    email lookups, and a test must not spend the user's credits.
     """
     if not settings.data_source.api_key:
         return TestConnectionResponse(ok=False, message="No API key configured.")
@@ -192,7 +190,7 @@ def _test_data_source(settings: AppSettings) -> TestConnectionResponse:
         companies = provider.search_companies(
             SearchCriteria(keywords=["technology"], locations=["Vietnam"], max_companies=1)
         )
-    except Exception as exc:  # noqa: BLE001 - hiện lỗi thật để người dùng sửa key/quyền
+    except Exception as exc:  # noqa: BLE001 - Show the actual error so users can fix the key or permissions.
         return TestConnectionResponse(
             ok=False,
             message=f"Data provider '{settings.data_source.provider}' failed.",
@@ -259,7 +257,7 @@ async def _test_search(settings: AppSettings) -> TestConnectionResponse:
     try:
         provider = get_search_provider(settings.search)
         results = await provider.search("Vietnam technology company", max_results=3)
-    except Exception as exc:  # noqa: BLE001 - hiện lỗi thật cho người dùng sửa cấu hình
+    except Exception as exc:  # noqa: BLE001 - Show the actual error so users can fix the configuration.
         return TestConnectionResponse(
             ok=False, message=f"Search provider '{settings.search.provider}' failed.", detail=str(exc)[:500]
         )

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, getToken } from "../api/client";
 import EnrichmentResult from "./EnrichmentResult";
-import ExpandableRow from "./ExpandableRow";
+import CompanyDrawerRow from "./CompanyDrawerRow";
 import JobProgress from "./JobProgress";
 import { useEnrichJob } from "../hooks/useJob";
 import { useSelection } from "../hooks/useSelection";
@@ -46,6 +46,19 @@ function foundSomething(result) {
   );
 }
 
+function sameCompany(company, enrichment) {
+  function domain(value) {
+    if (!value) return "";
+    try {
+      return new URL(value.includes("://") ? value : `https://${value}`).hostname.toLowerCase().replace(/^www\./, "");
+    } catch { return ""; }
+  }
+  const left = domain(company.domain);
+  const right = domain(enrichment.domain);
+  if (left && right) return left === right;
+  return company.name.trim().toLowerCase() === enrichment.company_name?.trim().toLowerCase();
+}
+
 /**
  * The companies of one search run, as a table.
  *
@@ -61,15 +74,22 @@ export default function ResultsView({
   totalContacts,
   runId,
   autoEnrichJob,
+  savedEnrichments = [],
+  onEnrichSaved,
 }) {
   const navigate = useNavigate();
   const [downloadError, setDownloadError] = useState(null);
   const [error, setError] = useState(null);
   const [openRow, setOpenRow] = useState(null);
+  const [query, setQuery] = useState("");
   const selection = useSelection();
   const [bulkJobId, setBulkJobId] = useState(null);
   const [starting, setStarting] = useState(false);
   const { job: bulkJob } = useEnrichJob(bulkJobId);
+
+  useEffect(() => {
+    if (bulkJob) onEnrichSaved?.();
+  }, [bulkJob, onEnrichSaved]);
 
   async function handleDownload(fmt) {
     setDownloadError(null);
@@ -83,15 +103,14 @@ export default function ResultsView({
   // Enrichment can arrive from three places — the page-level auto-enrich run, a
   // bulk run started here, or a single-company run — so they are merged into one
   // index by company name rather than tracked per row.
-  const enriched = {};
-  for (const result of autoEnrichJob?.results || []) enriched[result.company_name] = result;
-  for (const result of bulkJob?.results || []) enriched[result.company_name] = result;
+  const enriched = [...(bulkJob?.results || []), ...(autoEnrichJob?.results || [])];
+  const enrichmentFor = (company, index) => enriched.find(result => sameCompany(company, result)) || savedEnrichments[index];
 
   async function enrichTargets(targets) {
     setError(null);
     setStarting(true);
     try {
-      const { job_id } = await api.startEnrich(targets);
+      const { job_id } = await api.startEnrich(targets, runId);
       setBulkJobId(job_id);
     } catch (err) {
       setError(err.message || "Couldn't start enrichment.");
@@ -100,10 +119,10 @@ export default function ResultsView({
     }
   }
 
-  const companyNames = companies.map((r) => r.company.name);
+  const companyIds = companies.map((r) => r.company.id);
 
   function enrichSelected() {
-    const picked = companies.filter((r) => selection.has(r.company.name));
+    const picked = companies.filter((r) => selection.has(r.company.id));
     enrichTargets(
       picked.map((r) => ({ company_name: r.company.name, domain: r.company.domain || null })),
     );
@@ -127,6 +146,11 @@ export default function ResultsView({
         </div>
       </div>
 
+      <div className="result-stats" aria-label="Search summary">
+        <div><strong>{totalCompanies}</strong><span>Companies</span></div>
+        <div><strong>{totalContacts}</strong><span>Contacts</span></div>
+        <div><strong>{companies.filter((r, i) => foundSomething(enrichmentFor(r.company, i) || {})).length}</strong><span>Enriched</span></div>
+      </div>
       {downloadError && <p className="error">{downloadError}</p>}
       {error && <p className="error">{error}</p>}
 
@@ -168,6 +192,7 @@ export default function ResultsView({
             </div>
           )}
 
+          <div className="results-filters"><input type="search" aria-label="Search companies" placeholder="Search company, industry or domain..." value={query} onChange={e => setQuery(e.target.value)} /><Link className="button-link" to="/">+ New search</Link></div>
           <div className="tw">
             <table className="tbl">
               <thead>
@@ -175,8 +200,8 @@ export default function ResultsView({
                   <th className="tick">
                     <input
                       type="checkbox"
-                      checked={selection.hasAll(companyNames)}
-                      onChange={(e) => selection.setAll(e.target.checked, companyNames)}
+                      checked={selection.hasAll(companyIds)}
+                      onChange={(e) => selection.setAll(e.target.checked, companyIds)}
                       aria-label="Select all companies"
                     />
                   </th>
@@ -185,33 +210,53 @@ export default function ResultsView({
                   <th>Size</th>
                   <th>Senior contacts</th>
                   <th>Enriched</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
+                {!companies.some(r => `${r.company.name} ${r.company.industry || ""} ${r.company.domain || ""}`.toLowerCase().includes(query.toLowerCase())) && <tr><td colSpan={6} className="muted">No companies match this filter.</td></tr>}
                 {companies.map((r, i) => {
+                  if (!`${r.company.name} ${r.company.industry || ""} ${r.company.domain || ""}`.toLowerCase().includes(query.toLowerCase())) return null;
                   const name = r.company.name;
-                  const key = r.company.linkedin_url || name || i;
-                  const result = enriched[name];
-                  const open = openRow === name;
+                  const key = r.company.id;
+                  const result = enrichmentFor(r.company, i);
+                  const open = openRow === key;
                   const withEmail = r.contacts.filter((c) => c.email).length;
 
                   return (
-                    <ExpandableRow
+                    <CompanyDrawerRow
                       key={key}
                       open={open}
+                      title={name}
+                      onEnrich={() => enrichTargets([{ company_name: name, domain: r.company.domain || null }])}
+                      enriching={starting}
+                      onClose={() => setOpenRow(null)}
                       row={
-                        <tr className={open ? "pick open" : "pick"}>
+                        <tr className={open ? "pick company-row open" : "pick company-row"}
+                          tabIndex={0}
+                          aria-label={`View details for ${name}`}
+                          aria-expanded={open}
+                          onClick={event => {
+                            if (event.target.closest("button, a, input, select, textarea, summary")) return;
+                            setOpenRow(key);
+                          }}
+                          onKeyDown={event => {
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setOpenRow(key);
+                            }
+                          }}>
                           <td>
                             <input
                               type="checkbox"
-                              checked={selection.has(name)}
-                              onChange={() => selection.toggle(name)}
+                              checked={selection.has(key)}
+                              onChange={() => selection.toggle(key)}
                               aria-label={`Select ${name}`}
                             />
                           </td>
                           <td>
                             <strong>{name}</strong>
+
                             <div className="sub">
                               {r.company.domain || "no domain"}
                               {r.company.linkedin_url && (
@@ -257,18 +302,33 @@ export default function ResultsView({
                               <span className="muted">—</span>
                             )}
                           </td>
-                          <td>
-                            <button
-                              className="link-button"
-                              onClick={() => setOpenRow(open ? null : name)}
-                            >
-                              {open ? "Hide" : "View"}
-                            </button>
-                          </td>
                         </tr>
                       }
                       detail={
-                        <td colSpan={7}>
+                        <td colSpan={6}>
+                            <details className="company-profile" open>
+                              <summary>Apollo company profile</summary>
+                              {r.company.description && <p>{r.company.description}</p>}
+                              <dl>
+                                {[
+                                  ["Industry", r.company.industry],
+                                  ["Location", r.company.location],
+                                  ["Employees", r.company.employee_count],
+                                  ["Website", r.company.domain],
+                                  ["Founded", r.company.founded_year],
+                                  ["Phone", r.company.phone],
+                                  ["Address", r.company.address],
+                                  ["Annual revenue (Apollo estimate)", r.company.annual_revenue],
+                                  ["Total funding", r.company.total_funding],
+                                  ["Technologies", r.company.technologies?.join(", ")],
+                                  ["Keywords", r.company.keywords?.join(", ")],
+                                ].filter(([, value]) => value !== null && value !== undefined && value !== "").map(([label, value]) =>
+                                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                                )}
+                              </dl>
+                              <p className="muted small-note">Source: Apollo search. Only available fields are shown; older searches may not contain these details.</p>
+                            </details>
+                          <div data-pane="Contacts">
                           {r.contacts.length === 0 && (
                             <p className="muted small">No senior contacts found.</p>
                           )}
@@ -312,7 +372,8 @@ export default function ResultsView({
                               </tbody>
                             </table>
                           )}
-                          {result && <EnrichmentResult result={result} />}
+                          </div>
+                          <div data-pane="Enrichment">{result ? <EnrichmentResult result={result} /> : <p className="muted">No enrichment yet. Read the company website to find more information.</p>}</div>
                         </td>
                       }
                     />

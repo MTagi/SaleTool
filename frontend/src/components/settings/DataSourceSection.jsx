@@ -6,8 +6,17 @@ const PROVIDER_LABELS = {
   apollo: "Apollo.io — company + contact records, official API",
 };
 
-/** Bước 1 lấy công ty và liên hệ từ đâu. Chưa có key thì Search bị chặn. */
-export default function DataSourceSection({ value, options, onChange }) {
+const SEARCH_FIELD_LABELS = {
+  industries: "Industries",
+  keywords: "Keywords",
+  locations: "Locations",
+  company_size: "Company size",
+  target_titles: "Job titles",
+  seniority_levels: "Seniority levels",
+};
+
+/** Choose where step 1 gets companies and contacts. Search is blocked without a key. */
+export default function DataSourceSection({ value, options, onChange, needsSave = false }) {
   const summary = [
     PROVIDER_LABELS[value.provider] || value.provider,
     value.api_key_set ? "key saved" : "no key — search is blocked",
@@ -33,7 +42,31 @@ export default function DataSourceSection({ value, options, onChange }) {
 
       <SecretField value={value} onChange={onChange} />
 
-      <TestButton target="data_source" label="Test data source" />
+      <div>
+        <span className="field-label">Search fields</span>
+        <p className="muted small-note">
+          Choose which optional filters appear in New search. Empty fields are omitted from Apollo requests.
+        </p>
+        {(options?.apollo_search_fields || []).map((field) => (
+          <label className="checkbox spaced-sm" key={field}>
+            <input
+              type="checkbox"
+              checked={(value.enabled_search_fields || []).includes(field)}
+              onChange={(event) => {
+                const selected = value.enabled_search_fields || [];
+                onChange({
+                  enabled_search_fields: event.target.checked
+                    ? [...selected, field]
+                    : selected.filter((item) => item !== field),
+                });
+              }}
+            />
+            {SEARCH_FIELD_LABELS[field] || field}
+          </label>
+        ))}
+      </div>
+
+      <TestButton key={String(needsSave)} needsSave={needsSave} target="data_source" label="Test data source" />
     </SettingsSection>
   );
 }

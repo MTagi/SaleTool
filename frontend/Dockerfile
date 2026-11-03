@@ -1,14 +1,14 @@
-# Frontend "ABIM Sales Assistant": build SPA bằng Vite rồi phục vụ tĩnh qua nginx.
+# Frontend "ABIM Sales Assistant": build the SPA with Vite, then serve static files through nginx.
 #
-# Build xong là ra file tĩnh thuần — không có biến môi trường nào nướng vào lúc
-# build, vì `src/api/client.js` gọi đường dẫn tương đối ("/api/..."). nginx proxy
-# /api/ sang backend nên UI và API cùng origin, không cần cấu hình CORS.
+# The build produces plain static files; no environment variables are embedded
+# because `src/api/client.js` uses relative paths ("/api/..."). nginx proxies
+# /api/ to the backend, keeping UI and API on the same origin without CORS setup.
 
 FROM node:22-alpine AS build
 
 WORKDIR /app
 
-# npm ci cần package-lock.json và cài đúng phiên bản đã khoá.
+# npm ci requires package-lock.json and installs the exact locked versions.
 COPY package.json package-lock.json ./
 RUN npm ci
 

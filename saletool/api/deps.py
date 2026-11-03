@@ -1,4 +1,4 @@
-"""FastAPI dependencies dùng chung."""
+"""Shared FastAPI dependencies."""
 
 from __future__ import annotations
 

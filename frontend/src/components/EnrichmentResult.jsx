@@ -1,4 +1,16 @@
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+function downloadRaw(result) {
+  const blob = new Blob([result.raw_markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = (result.company_name.replace(/[^a-z0-9_-]/gi, "_").slice(0, 100) || "company") + "-raw.md";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function Detail({ label, value }) {
   if (!value) return null;
@@ -29,6 +41,15 @@ function LinkList({ label, items, hrefPrefix = "" }) {
 
 export default function EnrichmentResult({ result }) {
   const [showSources, setShowSources] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const queryDialog = useRef(null);
+  const card = useRef(null);
+  const bodyId = useId();
+  const queryTitleId = useId();
+  function collapse() {
+    setExpanded(false);
+    card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 
   const socials = Object.entries(result.social_links || {});
   const nothingFound =
@@ -40,7 +61,14 @@ export default function EnrichmentResult({ result }) {
     socials.length === 0;
 
   return (
-    <div className="company-card">
+    <div className="company-card" ref={card}>
+      <dialog className="research-dialog" ref={queryDialog} aria-labelledby={queryTitleId}>
+        <header>
+          <div><h2 id={queryTitleId}>Research queries</h2><p>{result.company_name} ? {result.query_planning_status === "llm" ? "AI planned" : "Default fallback"}</p></div>
+          <button type="button" className="settings-close" aria-label="Close research queries" onClick={() => queryDialog.current.close()}>&times;</button>
+        </header>
+        <ol>{result.search_queries?.map((query, index) => <li key={index}>{query}</li>)}</ol>
+      </dialog>
       <div className="company-head">
         <span className="company-name">{result.company_name}</span>
         <span className="company-meta">
@@ -48,9 +76,24 @@ export default function EnrichmentResult({ result }) {
           {result.pages_fetched > 0 && ` · ${result.pages_fetched} pages read`}
           {result.llm_calls > 0 && ` · ${result.llm_calls} LLM calls`}
         </span>
+        <div className="enrich-card-actions">
+          {result.search_queries?.length > 0 && <button type="button" className="secondary" onClick={() => queryDialog.current.showModal()}>Research queries ({result.search_queries.length})</button>}
+          <button type="button" className="secondary" aria-expanded={expanded} aria-controls={bodyId} onClick={() => expanded ? collapse() : setExpanded(true)}>{expanded ? "Collapse" : "Expand"}</button>
+        </div>
       </div>
 
-      <div className="enrich-body">
+      <div className="enrich-body" id={bodyId} hidden={!expanded}>
+        {result.raw_markdown && <button type="button" className="secondary" onClick={() => downloadRaw(result)}>Download raw data (.md)</button>}
+        {result.summary_markdown ? <article className="enrich-markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml
+            components={{img: () => null, a: ({children, href}) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>}}>
+            {result.summary_markdown}
+          </ReactMarkdown>
+        </article> : result.report_status && <p className="muted small-note">
+          {result.report_status === "no_llm" ? "Configure an AI model to generate an English summary." : result.report_status === "no_data" ? "No source data was available for a summary." : "The English summary could not be generated. Raw data is still available when collected."}
+        </p>}
+        {result.report_error && <p className="error" role="alert">Summary error: {result.report_error}</p>}
+        <details open={!result.summary_markdown}><summary>Extracted fields and sources</summary>
         {nothingFound && (
           <p className="muted small">
             Nothing found. The site may block crawlers, render entirely in JavaScript, or the domain may
@@ -126,6 +169,8 @@ export default function EnrichmentResult({ result }) {
             )}
           </div>
         )}
+        </details>
+        <button type="button" className="secondary enrich-collapse-bottom" onClick={collapse}>Collapse company</button>
       </div>
     </div>
   );

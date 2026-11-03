@@ -12,8 +12,8 @@ def client(db_path):
 
 
 def _login(client, username="alice", password="s3cret-pass") -> str:
-    """Token trần — các test dưới đây kiểm tra chính cơ chế auth nên cần token,
-    không chỉ cần header dựng sẵn như `auth()`."""
+    """Raw token — these tests check authentication itself and need the token,
+    not just a prepared header from `auth()`."""
     resp = client.post("/api/auth/login", json={"username": username, "password": password})
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -82,14 +82,59 @@ def test_search_and_download(client, stub_provider):
     assert "application/json" in json_resp.headers["content-type"]
 
 
+def test_search_ignores_disabled_apollo_filters_even_if_submitted(client, stub_provider):
+    from saletool.db.factory import get_settings_repository
+
+    repo = get_settings_repository()
+    settings = repo.get_settings()
+    settings.data_source.enabled_search_fields = ["locations"]
+    repo.save_settings(settings, updated_by="alice")
+    headers = auth(client)
+
+    response = _run_search(
+        client,
+        headers,
+        industries="Software",
+        keywords="fintech",
+        locations="Vietnam",
+        company_size_min="invalid stale value",
+        target_titles="CEO",
+        seniority_levels=["vp"],
+    )
+
+    assert response.status_code == 200
+    run = client.get(f"/api/search/runs/{response.json()['run_id']}", headers=headers).json()
+    criteria = run["criteria"]
+    assert criteria["locations"] == ["Vietnam"]
+    assert criteria["industries"] == []
+    assert criteria["keywords"] == []
+    assert criteria["company_size_min"] is None
+    assert criteria["target_titles"] == []
+    assert criteria["seniority_levels"] == []
+
+
+def test_empty_enabled_seniority_selection_does_not_restore_defaults(client, stub_provider):
+    response = _run_search(
+        client,
+        auth(client),
+        seniority_levels=[],
+        seniority_filter_present="true",
+    )
+
+    assert response.status_code == 200
+    headers = auth(client)
+    run = client.get(f"/api/search/runs/{response.json()['run_id']}", headers=headers).json()
+    assert run["criteria"]["seniority_levels"] == []
+
+
 def test_download_without_prior_search_returns_404(client):
-    # "bob" chưa từng chạy search — lịch sử được lưu DB, tách theo user.
+    # "bob" has never searched; history is stored in the database per user.
     resp = client.get("/api/download/csv", headers=auth(client, "bob", "another-pass"))
     assert resp.status_code == 404
 
 
 def test_search_without_configured_key_returns_400(client):
-    """Key nằm ở Settings; chưa cấu hình thì bước Search không chạy được."""
+    """The key is stored in Settings; Search cannot run until it is configured."""
     resp = client.post("/api/search", headers=auth(client), data={"keywords": "fintech"})
 
     assert resp.status_code == 400
@@ -97,7 +142,7 @@ def test_search_without_configured_key_returns_400(client):
 
 
 def test_search_rejects_a_provider_that_is_not_configured(client, data_source_key, stub_provider):
-    """Form không được phép tự chọn nguồn khác với nguồn đã cấu hình."""
+    """The form cannot select a source different from the configured source."""
     resp = client.post(
         "/api/search",
         headers=auth(client),
@@ -198,12 +243,12 @@ def test_change_password_success_then_login_with_new_password(client):
 
 
 def test_search_options_are_served_from_the_backend(client):
-    """Frontend không giữ bản chép của danh sách seniority — nó hỏi ở đây."""
+    """The frontend does not duplicate the seniority list; it fetches it here."""
     body = client.get("/api/search/options", headers=auth(client)).json()
 
     assert "c_suite" in body["seniority_levels"]
     assert "intern" in body["seniority_levels"]
-    # Mặc định phải là tập con của danh sách đầy đủ, nếu không form sẽ tick 1 ô không tồn tại.
+    # Defaults must be a subset of all values; otherwise the form checks a nonexistent option.
     assert set(body["default_senior_levels"]) <= set(body["seniority_levels"])
 
 

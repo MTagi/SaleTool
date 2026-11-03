@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { useToast } from "../context/ToastContext";
 import { formatCriteria, formatDate } from "../lib/format";
 
 export default function History() {
   const [runs, setRuns] = useState(null);
   const [error, setError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const { show } = useToast();
 
   useEffect(() => {
     api
@@ -14,14 +19,29 @@ export default function History() {
       .catch((err) => setError(err.message || "Couldn't load search history."));
   }, []);
 
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    setDeletingId(pendingDelete.id);
+    setError(null);
+    try {
+      await api.deleteRun(pendingDelete.id);
+      setRuns((prev) => prev.filter((item) => item.id !== pendingDelete.id));
+      show(`Deleted the search from ${formatDate(pendingDelete.created_at)}.`);
+    } catch (err) {
+      show(err.message || "Couldn't delete this search.", { tone: "error" });
+    } finally {
+      setDeletingId(null);
+      setPendingDelete(null);
+    }
+  }
+
   return (
     <main className="container">
       <div className="page-head">
         <div>
           <h1>Search history</h1>
           <p className="lede">
-            Every search is kept with its criteria and results. Enrich, ranking and message runs all
-            start from one of these.
+            Open a search to revisit its companies, saved enrichment, rankings and message drafts.
           </p>
         </div>
         <div className="toolbar">
@@ -68,8 +88,15 @@ export default function History() {
                     </td>
                     <td className="num">{run.total_companies}</td>
                     <td className="num">{run.total_contacts}</td>
-                    <td>
-                      <Link to={`/history/${run.id}`}>Open</Link>
+                    <td className="nowrap">
+                      <Link to={`/history/${run.id}`}>Open full history</Link>{" "}
+                      <button
+                        className="link-button danger"
+                        disabled={deletingId === run.id}
+                        onClick={() => setPendingDelete(run)}
+                      >
+                        {deletingId === run.id ? "Deleting…" : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -78,6 +105,15 @@ export default function History() {
           </div>
         </section>
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete this search?"
+        body={`This deletes the search from ${pendingDelete ? formatDate(pendingDelete.created_at) : ""} and its saved enrichment, rankings and message drafts. This cannot be undone.`}
+        busy={deletingId !== null}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={handleDelete}
+        confirmLabel="Delete search"
+      />
     </main>
   );
 }

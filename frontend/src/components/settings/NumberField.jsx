@@ -1,12 +1,13 @@
 /**
- * Ô số có sàn.
+ * Numeric input with a minimum value.
  *
- * Trình duyệt trả về chuỗi, và chuỗi rỗng parse ra `NaN` — thả `NaN` vào state
- * là ô nhập thành uncontrolled và React chửi. Sáu ô số trong Settings trước đây
- * mỗi ô tự viết lại `parseInt(...) || 1`; gom vào đây để quy tắc chỉ có một chỗ.
+ * Browsers return strings, and parsing an empty string produces `NaN`. Putting
+ * `NaN` in state makes the input uncontrolled and triggers a React warning. The
+ * six numeric Settings fields previously repeated `parseInt(...) || 1`; keep the
+ * rule in one place.
  *
- * `integer` chọn parseInt hay parseFloat; `min` vừa là ràng buộc của trình
- * duyệt vừa là giá trị thay thế khi người dùng xoá trắng ô.
+ * `integer` selects parseInt or parseFloat. `min` is both the browser constraint
+ * and the fallback value when the user clears the field.
  */
 export default function NumberField({
   label,
@@ -24,9 +25,9 @@ export default function NumberField({
       onChange(min);
       return;
     }
-    // Kẹp về khoảng hợp lệ ngay tại đây thay vì chỉ đặt `min`/`max` cho trình
-    // duyệt: thuộc tính đó chỉ chặn lúc submit, còn state thì đã nhận giá trị
-    // xấu rồi — và "0 trang mỗi công ty" là một cấu hình vô nghĩa.
+    // Clamp to the valid range here instead of relying only on the browser's
+    // `min`/`max`: those are checked on submit, after state already received the
+    // invalid value. "Zero pages per company" is not a meaningful configuration.
     onChange(Math.min(max ?? Infinity, Math.max(min, parsed)));
   }
 

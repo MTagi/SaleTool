@@ -7,13 +7,18 @@ import { useSelection } from "../hooks/useSelection";
 /**
  * Shown until the first search exists.
  *
- * Search itself needs no setup, so this is guidance rather than a blocker —
- * it just means nobody has to discover the LLM key requirement two pages later.
+ * Make required connections visible before the first search.
  */
 function GettingStarted({ status }) {
   if (!status || status.counts.runs > 0) return null;
 
   const items = [
+    {
+      done: status.data_source_configured,
+      text: "Connect Apollo",
+      why: "find companies and contacts",
+      to: "/settings",
+    },
     {
       done: status.llm_configured,
       text: "Add an LLM API key",
@@ -38,8 +43,8 @@ function GettingStarted({ status }) {
 
   return (
     <div className="getting-started">
-      <p className="getting-started-title">First time here? Search works right away.</p>
-      <p className="muted small">These take a minute each and unlock the later steps:</p>
+      <p className="getting-started-title">Set up your workspace</p>
+      <p className="muted small">Connect your data source to start searching. Complete the other steps when you're ready to rank and write.</p>
       <ul>
         {items.map((item) => (
           <li key={item.text} className={item.done ? "done" : ""}>
@@ -73,21 +78,20 @@ const DATA_PROVIDER_LABELS = {
 };
 
 /**
- * Provider đang chọn còn thiếu gì so với những gì Settings đang giữ?
+ * What is missing for the selected provider compared with the saved Settings?
  *
- * Xét theo lựa chọn trên dropdown chứ không theo provider đã lưu: chọn một
- * nguồn chưa ai cấu hình thì phải báo ngay, chứ không phải đợi bấm Search rồi
- * ăn lỗi 400.
+ * Check the dropdown selection rather than the saved provider: report an
+ * unconfigured source immediately instead of waiting for Search to return 400.
  *
- * Settings chỉ giữ **một** data source. Nên nếu lựa chọn khác với provider đã
- * lưu thì theo định nghĩa là chưa có key — đó là nhánh áp chót.
+ * Settings stores only **one** data source. A selection that differs from the
+ * saved provider therefore has no key; that is the penultimate branch.
  *
- * Trả về mảng để sau này provider cần nhiều thứ hơn một cái key (endpoint URL,
- * account id…) thì chỉ việc thêm phần tử, chỗ hiển thị không phải sửa.
+ * Return an array so providers can add requirements later (endpoint URL, account
+ * ID, etc.) without changing the display code.
  */
 function whatProviderIsMissing(provider, providersNeedingKey, status) {
-  if (!status || !provider) return [];                     // chưa biết gì thì chưa kết luận
-  if (!providersNeedingKey.includes(provider)) return [];  // provider này không cần key
+  if (!status || !provider) return [];                     // No status yet; cannot decide.
+  if (!providersNeedingKey.includes(provider)) return [];  // This provider needs no key.
   if (provider !== status.data_source_provider) return ["an API key"];
   return status.data_source_configured ? [] : ["an API key"];
 }
@@ -112,14 +116,16 @@ export default function Dashboard() {
   const [levels, setLevels] = useState([]);
   const [providers, setProviders] = useState([]);
   const [providersNeedingKey, setProvidersNeedingKey] = useState([]);
+  const [enabledFields, setEnabledFields] = useState(null);
   const seniority = useSelection();
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [autoEnrich, setAutoEnrich] = useState(false);
+  const [step, setStep] = useState(0);
 
   // The seniority list is a backend convention (saletool/seniority.py), so it
   // comes from the backend rather than being kept in sync by hand.
-  // `setSeniority` tách riêng vì nó ổn định, còn `seniority` đổi sau mỗi lần tick.
+  // `setSeniority` is stable, while `seniority` changes after every selection.
   const setSeniority = seniority.replace;
   useEffect(() => {
     api
@@ -129,6 +135,7 @@ export default function Dashboard() {
         setSeniority(data.default_senior_levels);
         setProviders(data.data_providers || []);
         setProvidersNeedingKey(data.data_providers_requiring_key || []);
+        setEnabledFields(data.enabled_search_fields || null);
       })
       .catch((err) => setError(err.message || "Couldn't load the seniority options."));
   }, [setSeniority]);
@@ -149,10 +156,11 @@ export default function Dashboard() {
   const selectedProvider = fields.data_provider || status?.data_source_provider || "";
   const selectedProviderLabel = DATA_PROVIDER_LABELS[selectedProvider] || selectedProvider;
   const missingForProvider = whatProviderIsMissing(selectedProvider, providersNeedingKey, status);
-  const ready = Boolean(status) && missingForProvider.length === 0;
+  const ready = Boolean(status) && enabledFields !== null && missingForProvider.length === 0;
 
   const maxCompanies = Math.max(1, parseInt(fields.max_companies, 10) || 1);
   const maxContacts = Math.max(1, parseInt(fields.max_contacts_per_company, 10) || 1);
+  const showField = (field) => !enabledFields || enabledFields.includes(field);
 
   function update(name, value) {
     setFields((f) => ({ ...f, [name]: value }));
@@ -160,13 +168,40 @@ export default function Dashboard() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
+    const sections = [...e.currentTarget.querySelectorAll("section.card2")];
+    for (const [index, section] of sections.entries()) {
+      if (step < 2 && index !== step) continue;
+      const invalid = [...section.querySelectorAll("input, select")].find(input => !input.checkValidity());
+      if (invalid) {
+        setStep(index);
+        requestAnimationFrame(() => invalid.reportValidity());
+        return;
+      }
+    }
+    if (step < 2) { setStep(step + 1); return; }
+    if (!ready) return;
     setError(null);
     setSubmitting(true);
 
     try {
       const formData = new FormData();
-      Object.entries(fields).forEach(([key, value]) => formData.append(key, value));
-      seniority.toList().forEach((level) => formData.append("seniority_levels", level));
+      const fieldGroups = {
+        industries: "industries",
+        keywords: "keywords",
+        locations: "locations",
+        company_size_min: "company_size",
+        company_size_max: "company_size",
+        target_titles: "target_titles",
+      };
+      Object.entries(fields).forEach(([key, value]) => {
+        if (key in fieldGroups && (!showField(fieldGroups[key]) || !value.trim())) return;
+        formData.append(key, value);
+      });
+      if (showField("seniority_levels")) {
+        formData.append("seniority_filter_present", "true");
+        seniority.toList().forEach((level) => formData.append("seniority_levels", level));
+      }
 
       const data = await api.search(formData);
 
@@ -179,7 +214,7 @@ export default function Dashboard() {
             company_name: r.company.name,
             domain: r.company.domain || null,
           }));
-          const { job_id } = await api.startEnrich(targets);
+          const { job_id } = await api.startEnrich(targets, data.run_id);
           enrichJobId = job_id;
         } catch (err) {
           console.warn("Auto-enrich could not start:", err.message);
@@ -197,7 +232,14 @@ export default function Dashboard() {
 
   return (
     <main className="container">
-      <h1>Find companies &amp; senior contacts</h1>
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">Your sales workspace</p>
+          <h1>New search</h1>
+          <p className="lede">Define your ideal company, find the right people and build a shortlist worth reaching out to.</p>
+        </div>
+        <Link to="/history" className="button-link">View search history →</Link>
+      </div>
       {error && <p className="error">{error}</p>}
 
       <GettingStarted status={status} />
@@ -209,111 +251,137 @@ export default function Dashboard() {
             checked={autoEnrich}
             onChange={(e) => setAutoEnrich(e.target.checked)}
           />
-          <strong>Auto-enrich</strong> — after the search, read each company's website for contact
-          details and leadership
+          <span><strong>Auto-enrich</strong> — read company websites for contact details and leadership after each search.</span>
         </label>
         <Link to="/settings" className="small">
           Configure
         </Link>
       </div>
 
+      <nav className="search-steps" aria-label="Search steps">
+        {["Companies", "Contacts", "Review"].map((label, index) => <button type="button" key={label} aria-current={step === index ? "step" : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{label}</button>)}
+      </nav>
       <div className="cols">
-        <form id="search-form" onSubmit={handleSubmit}>
-          <section className="card2">
+        <form id="search-form" noValidate onSubmit={handleSubmit}>
+          <section className="card2" hidden={step !== 0}>
             <header><h2>Company criteria</h2></header>
             <div className="cb">
               <div className="g2">
+                {showField("industries") && (
+                  <label>
+                    Industries (comma-separated)
+                    <input
+                      type="text"
+                      placeholder="Software, Fintech"
+                      value={fields.industries}
+                      onChange={(e) => update("industries", e.target.value)}
+                    />
+                    <span className="muted small-note">
+                      Matched against the company description, not Apollo&apos;s own taxonomy.
+                    </span>
+                  </label>
+                )}
+                {showField("locations") && (
+                  <label>
+                    Locations
+                    <input
+                      type="text"
+                      placeholder="Vietnam, Singapore"
+                      value={fields.locations}
+                      onChange={(e) => update("locations", e.target.value)}
+                    />
+                  </label>
+                )}
+              </div>
+              {showField("keywords") && (
                 <label>
-                  Industries (comma-separated)
+                  Keywords
                   <input
                     type="text"
-                    placeholder="Software, Fintech"
-                    value={fields.industries}
-                    onChange={(e) => update("industries", e.target.value)}
-                  />
-                  <span className="muted small-note">
-                    Matched against the company description, not Apollo&apos;s own taxonomy.
-                  </span>
-                </label>
-                <label>
-                  Locations
-                  <input
-                    type="text"
-                    placeholder="Vietnam, Singapore"
-                    value={fields.locations}
-                    onChange={(e) => update("locations", e.target.value)}
+                    placeholder="payments, lending"
+                    value={fields.keywords}
+                    onChange={(e) => update("keywords", e.target.value)}
                   />
                 </label>
-              </div>
-              <label>
-                Keywords
-                <input
-                  type="text"
-                  placeholder="payments, lending"
-                  value={fields.keywords}
-                  onChange={(e) => update("keywords", e.target.value)}
-                />
-              </label>
-              <div className="g2">
-                <label>
-                  Minimum company size (employees)
-                  <input
-                    type="number"
-                    min="0"
-                    value={fields.company_size_min}
-                    onChange={(e) => update("company_size_min", e.target.value)}
-                  />
-                </label>
-                <label>
-                  Maximum company size (employees)
-                  <input
-                    type="number"
-                    min="0"
-                    value={fields.company_size_max}
-                    onChange={(e) => update("company_size_max", e.target.value)}
-                  />
-                </label>
-              </div>
-              <p className="muted small-note">Leave both empty for any size.</p>
+              )}
+              {showField("company_size") && (
+                <div className="g2">
+                  <label>
+                    Minimum company size (employees)
+                    <input
+                      type="number"
+                      min="0"
+                      value={fields.company_size_min}
+                      onChange={(e) => update("company_size_min", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Maximum company size (employees)
+                    <input
+                      type="number"
+                      min="0"
+                      value={fields.company_size_max}
+                      onChange={(e) => update("company_size_max", e.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
+              {showField("company_size") && (
+                <p className="muted small-note">Leave both empty for any size.</p>
+              )}
+              {!["industries", "locations", "keywords", "company_size"].some(showField) && (
+                <p className="muted small-note">No company filters selected. <Link to="/settings">Choose fields in Settings</Link>.</p>
+              )}
             </div>
           </section>
 
-          <section className="card2">
+          <section className="card2" hidden={step !== 1}>
             <header><h2>Contacts to find</h2></header>
             <div className="cb">
-              <label>
-                Specific job titles (comma-separated)
-                <input
-                  type="text"
-                  placeholder="CEO, Head of Sales"
-                  value={fields.target_titles}
-                  onChange={(e) => update("target_titles", e.target.value)}
-                />
-              </label>
+              {showField("target_titles") && (
+                <label>
+                  Specific job titles (comma-separated)
+                  <input
+                    type="text"
+                    placeholder="CEO, Head of Sales"
+                    value={fields.target_titles}
+                    onChange={(e) => update("target_titles", e.target.value)}
+                  />
+                  <span className="muted small-note">When an AI model is configured, titles are expanded into equivalent abbreviations and full forms. If unavailable, your original titles are used.</span>
+                </label>
+              )}
 
-              <span className="field-label">Seniority levels</span>
-              {SENIORITY_GROUPS.map((group) => {
-                const inGroup = levels.filter((l) => group.levels.includes(l));
-                if (inGroup.length === 0) return null;
-                return (
-                  <div key={group.name}>
-                    <div className="pill-group-label">{group.name}</div>
-                    <div className="pills">
-                      {inGroup.map((level) => (
-                        <button
-                          key={level}
-                          type="button"
-                          className="pill"
-                          aria-pressed={seniority.has(level)}
-                          onClick={() => seniority.toggle(level)}
-                        >
-                          {level}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              {showField("seniority_levels") && (
+                <>
+                  <span className="field-label">Seniority levels</span>
+                  {SENIORITY_GROUPS.map((group) => {
+                    const inGroup = levels.filter((l) => group.levels.includes(l));
+                    if (inGroup.length === 0) return null;
+                    return (
+                      <div key={group.name}>
+                        <div className="pill-group-label">{group.name}</div>
+                        <div className="pills">
+                          {inGroup.map((level) => (
+                            <button
+                              key={level}
+                              type="button"
+                              className="pill"
+                              aria-pressed={seniority.has(level)}
+                              onClick={() => seniority.toggle(level)}
+                            >
+                              {level}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {!showField("target_titles") && !showField("seniority_levels") && (
+                <p className="muted small-note">No contact filters selected. <Link to="/settings">Choose fields in Settings</Link>.</p>
+              )}
 
               <div className="g2 spaced">
                 <label>
@@ -341,8 +409,8 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="card2">
-            <header><h2>Data source</h2></header>
+          <section className="card2" hidden={step !== 2}>
+            <header><h2>Review data source</h2></header>
             <div className="cb">
               <div className="g2">
                 <div>
@@ -387,18 +455,27 @@ export default function Dashboard() {
                   </label>
                   <p className="muted small-note">
                     A separate paid call, made only for people Apollo says have an email. Untick it
-                    to see how many companies and people match without spending anything.
+                    to skip the email lookup. Company search may still use Apollo credits.
                   </p>
                 </div>
               </div>
             </div>
           </section>
+          <div className="wizard-actions">
+            {step > 0 && <button type="button" className="secondary" onClick={() => setStep(step - 1)}>Back</button>}
+            {step < 2 && <button type="submit" className="primary">Continue &rarr;</button>}
+          </div>
         </form>
 
         <div className="rail">
           <section className="card2">
-            <header><h2>Before you run</h2></header>
+            <header><h2>Search criteria</h2></header>
             <div className="cb">
+              <dl className="search-summary">
+                <dt>Industry</dt><dd>{showField("industries") ? fields.industries || "Any industry" : "Not used"}</dd>
+                <dt>Location</dt><dd>{showField("locations") ? fields.locations || "Any location" : "Not used"}</dd>
+                <dt>Job titles</dt><dd>{showField("target_titles") ? fields.target_titles || "Any title" : "Not used"}</dd>
+              </dl>
               <div className="rail-big">
                 {maxCompanies}
                 <span>companies max</span>
@@ -408,7 +485,7 @@ export default function Dashboard() {
               </p>
               <div className="rail-row">
                 <span className="k">Company search</span>
-                <span>free</span>
+                <span>Apollo credits may apply</span>
               </div>
               <div className="rail-row">
                 <span className="k">Email lookup</span>
@@ -422,13 +499,15 @@ export default function Dashboard() {
                 type="submit"
                 form="search-form"
                 className="primary"
-                disabled={submitting || !ready}
+                disabled={submitting || !ready || step !== 2}
               >
                 {submitting ? "Searching…" : "Find companies"}
               </button>
               {!ready && (
                 <p className="muted small-note">
-                  Disabled until the data source has a key.
+                  {enabledFields === null
+                    ? "Waiting for search options."
+                    : "Disabled until the data source has a key."}
                 </p>
               )}
             </div>

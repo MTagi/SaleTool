@@ -1,11 +1,10 @@
-"""/api/catalog — CRUD danh mục dịch vụ mà chính công ty bạn đang cung cấp.
+"""/api/catalog — CRUD for your company's service catalog.
 
-Đây là đầu vào cho bước matching: chất lượng mô tả ở đây quyết định trực tiếp
-chất lượng xếp hạng, vì LLM chỉ đọc đúng những gì ghi trong này.
+This is input for matching: description quality directly affects ranking quality,
+because the LLM only sees what is written here.
 
-Phạm vi: dùng chung toàn hệ thống (giống Settings) — cả đội bán chung một bộ
-dịch vụ. Mọi user đã đăng nhập đều xem/sửa được; `updated_by` ghi lại ai sửa
-lần cuối.
+Scope: system-wide (like Settings), so the sales team shares one service list.
+Any logged-in user can view and edit it; `updated_by` records the last editor.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
 
 def _validated(payload: ServiceInput) -> ServiceInput:
-    """Chuẩn hoá đầu vào: bỏ khoảng trắng thừa, loại phần tử rỗng trong list."""
+    """Normalize input by trimming whitespace and removing empty list items."""
     cleaned = payload.model_copy(deep=True)
     cleaned.name = cleaned.name.strip()
     if not cleaned.name:
@@ -63,10 +62,10 @@ def update_service(
     return service.model_dump()
 
 
-# Không chú thích kiểu trả về `-> None`: cùng với `from __future__ import
-# annotations`, FastAPI hiểu chú thích đó thành `NoneType` rồi coi như
-# response model, và 204 thì không được phép có body -> app sập ngay lúc
-# đăng ký route (AssertionError khi import).
+# Do not annotate the return type as `-> None`: with `from __future__ import
+# annotations`, FastAPI interprets it as `NoneType` and treats it as a response
+# model. A 204 response cannot have a body, so the app would fail when registering
+# the route (AssertionError during import).
 @router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_service(service_id: str, _: str = Depends(get_current_user)):
     if not get_service_repository().delete_service(service_id):

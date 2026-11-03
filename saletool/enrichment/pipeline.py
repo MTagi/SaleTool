@@ -1,17 +1,18 @@
-"""Điều phối enrich 1 công ty.
+"""Orchestrate enrichment for one company.
 
-Thứ tự chạy được thiết kế để **giảm dần độ tin cậy và tăng dần chi phí**:
+The stages run in order of **decreasing reliability and increasing cost**:
 
-  1. structured  — JSON-LD / meta / mailto / regex   (rẻ nhất, chính xác nhất)
-  2. website     — sitemap + crawl nông website công ty
-  3. search      — trang bên ngoài (chỉ khi bật)
-  4. LLM         — chỉ cho phần các bước trên KHÔNG lấy được
+  1. structured  — JSON-LD / meta / mailto / regex   (cheapest, most accurate)
+  2. website     — sitemap + shallow crawl of the company website
+  3. search      — external pages (only when enabled)
+  4. LLM         — only for fields the previous stages could not find
 
-Mọi thứ lấy được ở bước sớm sẽ không bị bước sau ghi đè.
+Data found in an earlier stage is never overwritten by a later stage.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -29,6 +30,8 @@ from saletool.enrichment.fetcher import (
     RobotsCache,
 )
 from saletool.enrichment.llm import LLMClient, LLMError
+from saletool.enrichment.query_planner import plan_queries
+from saletool.enrichment.report import summarize_report
 from saletool.enrichment.search import get_search_provider
 from saletool.enrichment.structured import extract_structured, normalize_phone
 from saletool.models import (
@@ -43,11 +46,11 @@ logger = logging.getLogger(__name__)
 
 
 def _merge_unique(target: list[str], new_items: list[str], limit: int = 20, key_fn=None) -> None:
-    """Thêm phần tử mới, giữ thứ tự, không trùng.
+    """Append a new item while preserving order and avoiding duplicates.
 
-    `key_fn` cho phép so trùng theo dạng chuẩn hoá thay vì so chuỗi thô — cần cho
-    số điện thoại, vì cùng 1 số hay xuất hiện ở nhiều định dạng trên các trang
-    khác nhau.
+    `key_fn` allows deduplication using normalized values instead of raw strings.
+    This is needed for phone numbers, which often appear in different formats
+    across pages.
     """
     key_fn = key_fn or (lambda item: item.lower())
     seen = {key_fn(item) for item in target}
@@ -78,7 +81,7 @@ def _merge_executives(target: list[Executive], new_items: list[Executive], sourc
 def _source(
     url: str, fetched_at: str, method: str, extractor: str, ok: bool, note: str | None = None
 ) -> EnrichmentSource:
-    """Ghi provenance cho 1 lần bóc dữ liệu (URL nào, lúc nào, bằng cách gì)."""
+    """Record provenance for one extraction (URL, time, and method)."""
     return EnrichmentSource(
         url=url,
         fetched_at=fetched_at,
@@ -114,34 +117,50 @@ def _build_fetcher(settings: AppSettings):
 
 
 async def enrich_company(target: EnrichTarget, settings: AppSettings) -> CompanyEnrichment:
-    """Enrich 1 công ty. Không raise — lỗi từng trang được ghi vào `sources`."""
+    """Enrich one company. Never raise; errors for individual pages go in `sources`."""
     enrichment_cfg = settings.enrichment
     domain = normalize_domain(target.domain) if target.domain else None
 
     result = CompanyEnrichment(company_name=target.company_name, domain=domain)
+    raw_parts = []
+    if target.company_profile:
+        raw_parts.append("SOURCE: Apollo search snapshot\n" + json.dumps(target.company_profile.model_dump(exclude_none=True), ensure_ascii=False, indent=2))
     fetcher = _build_fetcher(settings)
 
-    # ---- Bước 1+2: thu thập URL cần đọc ----
+    # ---- Stages 1+2: collect URLs to read ----
     urls: list[str] = []
 
     if enrichment_cfg.use_company_website and domain:
         try:
+            primary = getattr(fetcher, "primary", fetcher)
             urls.extend(
                 await discover_company_site_urls(
                     domain,
                     enrichment_cfg.user_agent,
                     max_pages=enrichment_cfg.max_pages_per_company,
                     timeout=enrichment_cfg.request_timeout_seconds,
+                    robots=getattr(primary, "robots", None),
+                    limiter=getattr(primary, "limiter", None),
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Không lấy được URL từ website %s: %s", domain, exc)
+            logger.warning("Could not get URLs from website %s: %s", domain, exc)
 
     if enrichment_cfg.use_web_search and settings.search.provider != "none":
+        # Reserve space for external research instead of allowing the website
+        # sitemap to consume the entire budget before search is attempted.
+        search_budget = min(
+            settings.search.max_results,
+            enrichment_cfg.web_search_reserved_pages,
+            enrichment_cfg.max_pages_per_company,
+        )
+        website_urls = list(dict.fromkeys(urls))
+        urls = website_urls[: enrichment_cfg.max_pages_per_company - search_budget]
         remaining = max(enrichment_cfg.max_pages_per_company - len(urls), 0)
         if remaining:
             try:
                 provider = get_search_provider(settings.search)
+                result.search_queries, result.query_planning_status = await plan_queries(target, settings)
                 urls.extend(
                     await discover_external_urls(
                         provider,
@@ -149,24 +168,25 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
                         domain,
                         target.extra_context,
                         max_results=min(remaining, settings.search.max_results),
+                        queries=result.search_queries,
                     )
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Web search lỗi cho '%s': %s", target.company_name, exc)
+                logger.warning("Web search failed for '%s': %s", target.company_name, exc)
+        # If search found fewer pages (or failed), fill unused space with the
+        # remaining website pages. The overall page budget is unchanged.
+        urls.extend(url for url in website_urls if url not in urls)
 
     urls = list(dict.fromkeys(urls))[: enrichment_cfg.max_pages_per_company]
 
-    if not urls:
-        result.enriched_at = datetime.now(timezone.utc).isoformat()
-        return result
 
-    # ---- Bước 3: tải + bóc từng trang ----
+    # ---- Stage 3: fetch and extract each page ----
     llm_client = None
     if enrichment_cfg.use_llm and settings.llm.enabled and settings.llm.api_key:
         try:
             llm_client = LLMClient(settings.llm)
         except LLMError as exc:
-            logger.warning("Không khởi tạo được LLM client: %s", exc)
+            logger.warning("Could not initialize LLM client: %s", exc)
 
     for url in urls:
         page = await fetcher.fetch(url)
@@ -180,8 +200,9 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
 
         result.pages_fetched += 1
         text = extract_text(page.html, url=url)
+        raw_parts.append("SOURCE URL: " + url + "\nFETCHED AT: " + fetched_at + "\n\n" + text)
 
-        # --- Tầng 0: dữ liệu có cấu trúc (luôn chạy, gần như miễn phí) ---
+        # --- Stage 0: structured data (always runs, nearly free) ---
         if enrichment_cfg.use_structured_data:
             structured = extract_structured(page.html, text)
 
@@ -199,7 +220,7 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
                 _source(url, fetched_at, page.method, "json_ld+meta+regex", ok=True)
             )
 
-        # --- Tầng 3: LLM, chỉ cho phần còn thiếu ---
+        # --- Stage 3: LLM, only for missing fields ---
         needs_llm = llm_client and text and (not result.description or not result.executives)
         if needs_llm:
             try:
@@ -207,7 +228,7 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
                     target.company_name, truncate_for_llm(text), source_url=url
                 )
             except LLMError as exc:
-                logger.warning("LLM lỗi ở %s: %s", url, exc)
+                logger.warning("LLM failed at %s: %s", url, exc)
                 result.sources.append(
                     _source(url, fetched_at, page.method, "llm", ok=False, note=str(exc)[:200])
                 )
@@ -225,11 +246,13 @@ async def enrich_company(target: EnrichTarget, settings: AppSettings) -> Company
 
                 result.sources.append(_source(url, fetched_at, page.method, "llm", ok=True))
 
-    # Dọn lần cuối: mã số thuế có thể được tìm thấy ở trang khác với trang chứa
-    # số điện thoại, nên bộ lọc trong từng trang chưa đủ để loại nó khỏi phones.
+    # Final cleanup: a tax ID may appear on a different page from a phone number,
+    # so per-page filtering is not enough to remove it from the phone list.
     if result.tax_code:
         tax_key = normalize_phone(result.tax_code)
         result.phones = [p for p in result.phones if normalize_phone(p) != tax_key]
 
+    result.raw_markdown = "\n\n".join(raw_parts) or None
+    await summarize_report(result, settings)
     result.enriched_at = datetime.now(timezone.utc).isoformat()
     return result

@@ -1,14 +1,14 @@
-"""Tầng 0 — lấy dữ liệu ĐÃ có cấu trúc sẵn trong HTML, không cần LLM.
+"""Stage 0 — extract data already structured in HTML, without an LLM.
 
-Lý do tầng này chạy trước: với dữ liệu đã có cấu trúc, code thường **chính xác
-hơn LLM**. Email lấy từ `mailto:` là chắc chắn đúng; LLM có thể đọc nhầm hoặc
-bịa. Đồng thời nó cắt phần lớn số lần gọi LLM.
+This stage runs first because code is usually **more accurate than an LLM** for
+structured data. An email from `mailto:` is reliable; an LLM can misread or
+invent one. This also avoids most LLM calls.
 
-Nguồn khai thác:
-- JSON-LD schema.org/Organization  (tên, địa chỉ, điện thoại, email, logo, social)
-- Thẻ meta / OpenGraph             (tên, mô tả)
-- mailto: / tel:                    (liên hệ)
-- regex                             (email, điện thoại VN, mã số thuế/MSDN)
+Sources:
+- JSON-LD schema.org/Organization  (name, address, phone, email, logo, social)
+- Meta / OpenGraph tags             (name, description)
+- mailto: / tel:                    (contacts)
+- regex                             (email, Vietnamese phone, tax/business IDs)
 """
 
 from __future__ import annotations
@@ -23,12 +23,12 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# Mã số thuế / mã số doanh nghiệp VN: 10 số, hoặc 10 số + "-" + 3 số (đơn vị phụ thuộc).
+# Vietnamese tax/business IDs: 10 digits, or 10 digits + "-" + 3 digits (dependent entities).
 TAX_CODE_RE = re.compile(r"\b(\d{10}(?:-\d{3})?)\b")
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
-# Số điện thoại VN: +84 / 84 / 0 + 9-10 chữ số, cho phép dấu cách, chấm, gạch.
+# Vietnamese phone numbers: +84 / 84 / 0 plus 9–10 digits; spaces, dots, and hyphens are allowed.
 PHONE_RE = re.compile(r"(?:\+?84|0)(?:[\s.\-]?\d){8,10}\b")
 
 _SOCIAL_DOMAINS = {
@@ -42,24 +42,23 @@ _SOCIAL_DOMAINS = {
     "zalo.me": "zalo",
 }
 
-# Nút "chia sẻ trang này" trỏ đúng vào các domain trên nhưng không phải trang của
-# công ty (facebook.com/sharer/sharer.php?u=..., twitter.com/intent/tweet...).
-# Gần như trang nào cũng có nút share, không lọc thì nó luôn thắng link thật vì
-# thường nằm cao hơn trong HTML.
+# "Share this page" buttons point to these domains but are not company profiles
+# (facebook.com/sharer/sharer.php?u=..., twitter.com/intent/tweet...). Nearly every
+# page has a share button; without filtering, it often precedes the real profile link.
 _SOCIAL_SHARE_RE = re.compile(
     r"/(?:sharer|share|sharearticle|share-offsite|sharing|intent)\b|[?&]u=http|/pin/create",
     re.IGNORECASE,
 )
 
-# Link tới 1 video/bài viết cụ thể — không phải hồ sơ công ty.
+# Link to a specific video or post, not a company profile.
 _SOCIAL_ITEM_RE = re.compile(r"youtube\.com/watch|youtu\.be/|/posts/|/videos/", re.IGNORECASE)
 
 
 def social_profile(url: str) -> tuple[str, str] | None:
-    """`(mạng, url)` nếu là hồ sơ mạng xã hội, `None` nếu không phải.
+    """Return `(network, url)` for a social profile, or `None` otherwise.
 
-    href trong HTML hay dính khoảng trắng/xuống dòng ở hai đầu; không strip thì
-    URL lưu xuống DB thừa dấu cách và bấm vào không mở được.
+    HTML href values often have surrounding whitespace or newlines. Without
+    stripping them, the database stores invalid URLs that cannot be opened.
     """
     link = (url or "").strip()
     if not link:
@@ -74,12 +73,12 @@ def social_profile(url: str) -> tuple[str, str] | None:
             return key, link
     return None
 
-# Email dùng chung của nền tảng/ảnh — không phải liên hệ thật của công ty.
+# Platform or image service email addresses, not real company contacts.
 _EMAIL_NOISE = ("example.com", "sentry.io", "wixpress.com", "@2x", ".png", ".jpg", ".webp")
 
 
 class StructuredData(BaseModel):
-    """Kết quả tầng 0 cho 1 trang."""
+    """Stage 0 results for one page."""
 
     name: str | None = None
     description: str | None = None
@@ -92,9 +91,9 @@ class StructuredData(BaseModel):
 
 
 class _MetaAndLinkParser(HTMLParser):
-    """Bóc thẻ <meta>, <script type=application/ld+json>, và href mailto/tel/social.
+    """Extract <meta> tags, <script type=application/ld+json>, and mailto/tel/social hrefs.
 
-    Dùng html.parser của stdlib để không thêm dependency parser HTML riêng.
+    Use the standard-library html.parser to avoid an additional HTML parser dependency.
     """
 
     def __init__(self) -> None:
@@ -128,9 +127,9 @@ class _MetaAndLinkParser(HTMLParser):
             self._buffer = []
 
         elif tag == "a":
-            # Strip ngay tại đây, trước mọi kiểm tra tiền tố: href trải trên
-            # nhiều dòng thì giá trị bắt đầu bằng xuống dòng/khoảng trắng, và
-            # startswith("http"/"mailto:"/"tel:") sẽ loại thẳng link hợp lệ.
+            # Strip here before prefix checks: a multiline href may start with
+            # whitespace or a newline, causing startswith("http"/"mailto:"/"tel:")
+            # to incorrectly reject a valid link.
             href = (attr.get("href") or "").strip()
             low = href.lower()
             if low.startswith("mailto:"):
@@ -157,7 +156,7 @@ class _MetaAndLinkParser(HTMLParser):
 
 
 def _iter_jsonld_objects(blocks: list[str]):
-    """Duyệt mọi object trong các khối JSON-LD, kể cả @graph và mảng lồng nhau."""
+    """Visit every object in JSON-LD blocks, including @graph and nested arrays."""
     for block in blocks:
         try:
             payload = json.loads(block)
@@ -214,11 +213,11 @@ def _clean_emails(candidates: list[str]) -> list[str]:
 
 
 def normalize_phone(raw: str) -> str:
-    """Đưa số điện thoại về dạng chuẩn để so trùng.
+    """Normalize phone numbers for deduplication.
 
-    Cùng một số hay xuất hiện ở nhiều định dạng trên các trang khác nhau
-    ('+84 28 3822 1234', '+842838221234', '028 3822 1234'). Bỏ ký tự phân cách
-    rồi bỏ tiền tố quốc gia/số 0 đứng đầu để cả ba quy về một khoá.
+    The same number often appears in different formats across pages
+    ('+84 28 3822 1234', '+842838221234', '028 3822 1234'). Remove separators and
+    the leading country code/zero so all three map to one key.
     """
     digits = re.sub(r"\D", "", raw or "")
     if digits.startswith("84"):
@@ -227,7 +226,7 @@ def normalize_phone(raw: str) -> str:
 
 
 def _clean_phones(candidates: list[str], exclude: set[str] | None = None) -> list[str]:
-    """Giữ bản gốc dễ đọc, nhưng khử trùng theo dạng chuẩn hoá."""
+    """Keep the original readable value, but deduplicate using its normalized form."""
     exclude = exclude or set()
     seen: list[str] = []
     seen_keys: set[str] = set()
@@ -244,20 +243,20 @@ def _clean_phones(candidates: list[str], exclude: set[str] | None = None) -> lis
 
 
 def extract_structured(html: str, text: str | None = None) -> StructuredData:
-    """Trích dữ liệu có cấu trúc từ 1 trang HTML.
+    """Extract structured data from one HTML page.
 
-    `text` là nội dung đã làm sạch (từ trafilatura) — dùng để chạy regex trên
-    phần nội dung thật thay vì toàn bộ HTML, giảm nhiễu rất nhiều.
+    `text` is cleaned content (from trafilatura); run regex against the actual
+    page text instead of all HTML to greatly reduce noise.
     """
     data = StructuredData()
 
     parser = _MetaAndLinkParser()
     try:
         parser.feed(html)
-    except Exception as exc:  # noqa: BLE001 - HTML lỗi cú pháp là chuyện thường
-        logger.debug("Lỗi parse HTML ở tầng structured: %s", exc)
+    except Exception as exc:  # noqa: BLE001 - Malformed HTML is common.
+        logger.debug("HTML parsing failed in the structured stage: %s", exc)
 
-    # --- JSON-LD Organization: nguồn tốt nhất, ưu tiên cao nhất ---
+    # --- JSON-LD Organization: best and highest-priority source ---
     for node in _iter_jsonld_objects(parser.jsonld_blocks):
         node_type = node.get("@type")
         types = node_type if isinstance(node_type, list) else [node_type]
@@ -286,32 +285,39 @@ def extract_structured(html: str, text: str | None = None) -> StructuredData:
             if profile := social_profile(link):
                 data.social_links.setdefault(*profile)
 
-    # --- Thẻ meta / OpenGraph ---
+    # --- Meta / OpenGraph tags ---
     data.name = data.name or parser.metas.get("og:site_name") or parser.title
     data.description = (
         data.description or parser.metas.get("og:description") or parser.metas.get("description")
     )
 
-    # --- Liên kết mailto:/tel:/social ---
+    # --- mailto:/tel:/social links ---
     data.emails.extend(parser.mailto)
     data.phones.extend(parser.tel)
     for key, link in parser.social.items():
         data.social_links.setdefault(key, link)
 
-    # --- Regex trên nội dung đã làm sạch (ít nhiễu hơn HTML thô) ---
+    # --- Regex over cleaned text (less noisy than raw HTML) ---
     haystack = text or ""
     data.emails.extend(EMAIL_RE.findall(haystack))
     data.phones.extend(PHONE_RE.findall(haystack))
 
     if tax_match := TAX_CODE_RE.search(haystack):
-        # Chỉ nhận khi gần đó có từ khoá — tránh nhận nhầm số điện thoại/số nhà.
+        # Accept only when a nearby keyword is present; avoid mistaking phone or street numbers.
         window = haystack[max(0, tax_match.start() - 60) : tax_match.start()].lower()
-        if any(kw in window for kw in ("mã số thuế", "mst", "mã số doanh nghiệp", "msdn", "tax code")):
+        # Keep Vietnamese terms because this extractor processes Vietnamese company websites.
+        if any(
+            kw in window
+            for kw in (
+                "m\xe3 s\u1ed1 thu\u1ebf", "mst", "m\xe3 s\u1ed1 doanh nghi\u1ec7p", "msdn",
+                "tax code", "business registration number",
+            )
+        ):
             data.tax_code = tax_match.group(1)
 
     data.emails = _clean_emails(data.emails)
-    # Mã số thuế cũng là 10 chữ số bắt đầu bằng 0 nên khớp luôn pattern số điện
-    # thoại VN. Đã nhận diện được là mã số thuế thì loại khỏi danh sách số ĐT.
+    # Tax IDs are also 10 digits starting with 0, so they match the Vietnamese
+    # phone pattern. Once identified as a tax ID, remove them from the phone list.
     exclude = {normalize_phone(data.tax_code)} if data.tax_code else set()
     data.phones = _clean_phones(data.phones, exclude=exclude)
     data.addresses = [a for a in dict.fromkeys(data.addresses) if a]

@@ -25,11 +25,13 @@ export default function Login() {
   }
 
   return (
-    <main className="container">
+    <main className="container login-page">
       <div className="auth-card">
-        <h1>ABIM Sales Assistant</h1>
-        <p className="muted">Sign in to find companies and senior contacts.</p>
-        {error && <p className="error">{error}</p>}
+        <div className="auth-mark" aria-hidden="true">A</div>
+        <p className="eyebrow">ABIM Sales Assistant</p>
+        <h1>Welcome back</h1>
+        <p className="muted">Your workspace for finding the right companies and starting better conversations.</p>
+        {error && <p className="error" role="alert">{error}</p>}
         <form onSubmit={handleSubmit}>
           <label>
             Username

@@ -1,4 +1,4 @@
-"""Test /api/messages — chạy job thật ở nền, chỉ thay lớp gọi LLM bằng bản giả."""
+"""Test /api/messages with a real background job and a fake LLM client."""
 
 
 import pytest
@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from saletool.api.app import app
 from saletool.db.sqlite_repo import (
+    SQLiteMatchJobRepository,
     SQLiteSearchRunRepository,
     SQLiteSettingsRepository,
 )
@@ -14,6 +15,7 @@ from saletool.models import (
     Company,
     CompanyResult,
     Contact,
+    MatchJobDetail,
     SearchCriteria,
     SenderProfile,
 )
@@ -32,7 +34,7 @@ async def _fake_write(settings, payload, timeout=None):
 
 @pytest.fixture
 def configured(db_path):
-    """LLM key + hồ sơ người gửi — hai điều kiện bắt buộc của bước sinh message."""
+    """An LLM key and sender profile are both required for message generation."""
     settings = AppSettings()
     settings.llm.api_key = "sk-or-test"
     settings.sender = SenderProfile(full_name="Tran Van A", company_name="ABIM")
@@ -49,9 +51,9 @@ def client(configured, monkeypatch):
 
 @pytest.fixture
 def run_id(configured):
-    """1 lần search đã lưu: 1 công ty 3 contact, 1 công ty 1 contact.
+    """One saved search run: one company with three contacts, one with one contact.
 
-    Ba người ở cùng công ty là để chạm ngưỡng cảnh báo (khuyến nghị 1-2)."""
+    Three contacts at one company trigger the warning (recommendation: 1–2)."""
     return (
         SQLiteSearchRunRepository(configured)
         .save_run(
@@ -89,13 +91,36 @@ def _payload(run_id, **overrides) -> dict:
     return payload
 
 
+@pytest.mark.parametrize(
+    ("owner", "same_run", "state", "expected"),
+    [
+        ("alice", True, "completed", 200),
+        ("alice", False, "completed", 400),
+        ("alice", True, "running", 400),
+        ("bob", True, "completed", 404),
+    ],
+)
+def test_message_matching_context_belongs_to_selected_search(
+    client, configured, run_id, monkeypatch, owner, same_run, state, expected
+):
+    monkeypatch.setattr("saletool.api.routes.messages.jobs.start_message_job", lambda job: None)
+    SQLiteMatchJobRepository(configured).create_job(MatchJobDetail(
+        id="context", username=owner, run_id=run_id if same_run else "other-search",
+        status=state, created_at="2026-09-17T10:00:00Z",
+    ))
+    response = client.post(
+        "/api/messages", headers=auth(client), json=_payload(run_id, match_job_id="context")
+    )
+    assert response.status_code == expected
+
+
 def test_requires_auth(client, run_id):
     assert client.post("/api/messages", json=_payload(run_id)).status_code == 401
     assert client.get("/api/messages/options").status_code == 401
 
 
 def test_options_expose_the_real_channel_limits(client):
-    """UI hiển thị giới hạn lấy từ backend, không chép cứng — 1 chỗ đúng duy nhất."""
+    """The UI displays limits from the backend instead of hardcoding a duplicate."""
     body = client.get("/api/messages/options", headers=auth(client)).json()
 
     connection = next(c for c in body["channels"] if c["id"] == "linkedin_connection")
@@ -146,14 +171,51 @@ def test_job_writes_a_message_for_the_contact(client, run_id):
     message = final["results"][0]
     assert message["contact_name"] == "Tran Thi Lan"
     assert message["contact_title"] == "CFO"
-    assert message["contact_email"] == "lan@acme.vn"  # lấy từ run, không do LLM bịa
+    assert message["contact_email"] == "lan@acme.vn"  # From the run, not invented by the LLM.
     assert message["body"] == GOOD_BODY
     assert message["subject"]
     assert message["warnings"] == []
 
 
+def test_ids_write_to_distinct_recipients_with_duplicate_names(client, configured):
+    repo = SQLiteSearchRunRepository(configured)
+    run_id = repo.save_run("alice", "apollo", SearchCriteria(), [
+        CompanyResult(company=Company(name="Acme", domain=domain), contacts=[
+            Contact(full_name="John", email=f"first@{domain}"),
+            Contact(full_name="John", email=f"second@{domain}"),
+        ]) for domain in ("one.example", "two.example")
+    ]).id
+    run = repo.get_run("alice", run_id)
+    targets = [
+        {"company_id": result.company.id, "contact_id": contact.id,
+         "company_name": "Acme", "contact_name": "John"}
+        for result in run.results for contact in result.contacts
+    ]
+    headers = auth(client)
+    response = client.post("/api/messages", headers=headers, json=_payload(run_id, targets=targets))
+    assert response.status_code == 200
+    final = wait_for_job(client, headers, f"/api/messages/jobs/{response.json()['job_id']}")
+    assert {message["contact_email"] for message in final["results"]} == {
+        "first@one.example", "second@one.example", "first@two.example", "second@two.example",
+    }
+
+
+def test_ambiguous_legacy_request_is_rejected_before_creating_a_job(client, configured):
+    run_id = SQLiteSearchRunRepository(configured).save_run("alice", "apollo", SearchCriteria(), [
+        CompanyResult(company=Company(name="Acme"), contacts=[
+            Contact(full_name="John", email="first@example.com"),
+            Contact(full_name="John", email="second@example.com"),
+        ])
+    ]).id
+    response = client.post("/api/messages", headers=auth(client), json=_payload(run_id, targets=[
+        {"company_name": "Acme", "contact_name": "John"},
+    ]))
+    assert response.status_code == 400
+    assert "ambiguous" in response.json()["detail"]
+
+
 def test_a_contact_not_in_the_run_is_reported_not_invented(client, run_id):
-    """Client không được tự thêm người ngoài dữ liệu đã lưu."""
+    """The client cannot add contacts outside the saved data."""
     headers = auth(client)
     job_id = client.post(
         "/api/messages",
@@ -171,7 +233,7 @@ def test_a_contact_not_in_the_run_is_reported_not_invented(client, run_id):
 
 
 def test_too_many_contacts_at_one_company_raises_a_notice(client, run_id):
-    """Apollo đo: rải nhiều người cùng 1 công ty làm tụt tỉ lệ trả lời."""
+    """Apollo measured lower reply rates when contacting many people at one company."""
     headers = auth(client)
     resp = client.post(
         "/api/messages",
@@ -192,7 +254,7 @@ def test_too_many_contacts_at_one_company_raises_a_notice(client, run_id):
 
 
 def test_no_notice_at_exactly_two_contacts_per_company(client, run_id):
-    """Hai người/công ty vẫn nằm trong khuyến nghị — cảnh báo ở đây là nhiễu."""
+    """Two contacts per company is within the recommendation, so a warning would be noise."""
     headers = auth(client)
     resp = client.post(
         "/api/messages",
@@ -238,7 +300,7 @@ def test_jobs_list_shows_history(client, run_id):
 
 
 def test_rejects_when_there_is_no_sender_profile(db_path, run_id, monkeypatch):
-    """Không có người gửi thì LLM buộc phải bịa ra một người — chặn từ đầu."""
+    """Without sender details the LLM would have to invent someone; block it early."""
     monkeypatch.setattr("saletool.messaging.llm.request_json", _fake_write)
 
     settings = AppSettings()

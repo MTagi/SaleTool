@@ -1,12 +1,14 @@
-"""Mã hoá các giá trị nhạy cảm (API key) trước khi lưu xuống DB.
+"""Encrypt sensitive values (API keys) before storing them in the database.
 
-Phạm vi bảo vệ — nói rõ để không hiểu nhầm: lớp này bảo vệ khỏi việc **lộ tình
-cờ** (file DB bị commit nhầm, bản backup bị copy đi, ai đó mở file .db bằng
-trình xem SQLite). Nó **không** bảo vệ được nếu server đã bị chiếm quyền, vì khoá
-giải mã được suy ra từ SALETOOL_SECRET_KEY nằm ngay trên máy đó.
+Protection scope, to avoid misunderstandings: this protects against **accidental
+exposure** (a database file committed by mistake, a copied backup, or someone
+opening the .db file in a SQLite viewer). It does **not** protect against a
+compromised server, because the decryption key derived from SALETOOL_SECRET_KEY
+is on that machine.
 
-Khoá được suy ra từ SALETOOL_SECRET_KEY bằng HKDF, nên đổi secret key sẽ làm mọi
-giá trị đã mã hoá không giải được nữa (người dùng phải nhập lại API key).
+The key is derived from SALETOOL_SECRET_KEY using HKDF. Changing the secret key
+makes all existing encrypted values unreadable, so users must enter their API
+keys again.
 """
 
 from __future__ import annotations
@@ -28,11 +30,11 @@ _INFO = b"saletool-settings-encryption-v1"
 def _fernet() -> Fernet:
     secret = os.environ.get("SALETOOL_SECRET_KEY")
     if not secret:
-        # Không tự sinh khoá ngẫu nhiên ở đây: nếu làm vậy, mọi lần restart sẽ
-        # sinh khoá mới và toàn bộ API key đã lưu thành rác không giải được.
+        # Do not generate a random key here: every restart would create a new key
+        # and make all saved API keys unreadable.
         raise RuntimeError(
-            "Cần đặt SALETOOL_SECRET_KEY để lưu API key an toàn. "
-            "Sinh khoá: python -c \"import secrets; print(secrets.token_hex(32))\""
+            "Set SALETOOL_SECRET_KEY to store API keys securely. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
         )
 
     derived = HKDF(
@@ -45,21 +47,21 @@ def _fernet() -> Fernet:
 
 
 def encrypt(value: str | None) -> str | None:
-    """Mã hoá 1 chuỗi. Trả về None nếu đầu vào rỗng."""
+    """Encrypt a string. Return None if the input is empty."""
     if not value:
         return None
     if value.startswith(_PREFIX):
-        return value  # đã mã hoá rồi, tránh mã hoá 2 lần
+        return value  # Already encrypted; avoid encrypting twice.
     token = _fernet().encrypt(value.encode("utf-8")).decode("ascii")
     return f"{_PREFIX}{token}"
 
 
 def decrypt(value: str | None) -> str | None:
-    """Giải mã. Trả về None nếu rỗng hoặc không giải được (vd: đổi secret key)."""
+    """Decrypt a value. Return None if empty or unreadable (e.g. after a secret key change)."""
     if not value:
         return None
     if not value.startswith(_PREFIX):
-        # Giá trị lưu từ trước khi bật mã hoá — trả nguyên, để lần lưu sau tự nâng cấp.
+        # Value was stored before encryption was enabled; return it as-is for migration on save.
         return value
 
     token = value[len(_PREFIX) :]
@@ -67,14 +69,14 @@ def decrypt(value: str | None) -> str | None:
         return _fernet().decrypt(token.encode("ascii")).decode("utf-8")
     except (InvalidToken, RuntimeError):
         logger.warning(
-            "Không giải mã được giá trị đã lưu — nhiều khả năng SALETOOL_SECRET_KEY đã đổi. "
-            "Người dùng cần nhập lại API key trong trang Settings."
+            "Could not decrypt the saved value; SALETOOL_SECRET_KEY may have changed. "
+            "The user must re-enter the API key in Settings."
         )
         return None
 
 
 def mask(value: str | None) -> str | None:
-    """Tạo bản hiển thị an toàn để trả về frontend: chỉ lộ 4 ký tự cuối."""
+    """Create a safe display value for the frontend, revealing only the last four characters."""
     if not value:
         return None
     if len(value) <= 4:

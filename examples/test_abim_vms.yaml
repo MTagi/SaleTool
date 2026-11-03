@@ -1,0 +1,52 @@
+# Criteria for the end-to-end test scenario (see docs/kich-ban-test.md).
+#
+# Aligned with Abim Software's business: AI VMS monitors entry to restricted
+# areas. Typical customers already have factories, warehouses, or cameras in
+# place — manufacturing, logistics, and construction companies, not software firms.
+#
+# Counts are deliberately SMALL: this is a system test, not a real sales run.
+# Three companies × two contacts are enough to verify all five steps, while each
+# run costs only a few cents in LLM usage.
+
+industries:
+  - Manufacturing
+  - Logistics and Supply Chain
+  - Warehousing
+
+keywords:
+  - factory
+  - warehouse
+  - manufacturing plant
+
+# Measured 2026-09-05 (company search costs no credits, so it can be tested freely):
+# Thailand returned the cleanest data — actual logistics/manufacturing businesses,
+# without recruiting companies mixed in as in some other countries. Change the
+# line below to use another country; see the comparison in docs/kich-ban-test.md.
+locations:
+  - Thailand
+
+# Below 50 employees, companies often lack a camera system worth analyzing;
+# above 1,000, they tend to have an in-house security team and a long procurement cycle.
+company_size_min: 50
+company_size_max: 1000
+
+# VMS decision-makers: operations (owns on-site safety), IT (owns camera
+# infrastructure), and executives (own the budget).
+target_titles:
+  - CEO
+  - COO
+  - Operations Director
+  - Plant Manager
+  - IT Manager
+  - Head of Security
+
+seniority_levels:
+  - owner
+  - founder
+  - c_suite
+  - vp
+  - director
+  - head
+
+max_companies: 3
+max_contacts_per_company: 2

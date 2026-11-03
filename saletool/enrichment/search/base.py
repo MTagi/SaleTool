@@ -1,8 +1,7 @@
-"""Interface cho công cụ web search — dùng để tìm các trang BÊN NGOÀI nói về
-công ty (website của chính công ty thì không cần search, xem discovery.py).
+"""Interface for web search tools, used to find pages OUTSIDE the company
+website (the company website itself does not need search; see discovery.py).
 
-Cùng mô hình với CompanyContactProvider: đổi nhà cung cấp không phải sửa
-pipeline.
+Like CompanyContactProvider, changing providers does not require pipeline edits.
 """
 
 from __future__ import annotations
@@ -23,4 +22,4 @@ class SearchProvider(ABC):
 
     @abstractmethod
     async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
-        """Trả về danh sách kết quả. Raise nếu cấu hình sai/không kết nối được."""
+        """Return a list of results. Raise if configuration is invalid or connection fails."""

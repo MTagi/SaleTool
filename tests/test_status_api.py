@@ -58,7 +58,7 @@ def test_reports_llm_and_sender_once_configured(client, db_path):
 
 
 def test_a_half_filled_sender_profile_does_not_count(client, db_path):
-    """Có tên mà không có công ty thì message vẫn không viết được — đừng báo xanh."""
+    """A name without a company is not enough to write a message; do not report ready."""
     settings = AppSettings()
     settings.sender = SenderProfile(full_name="Tran Van A", company_name="   ")
     SQLiteSettingsRepository(db_path).save_settings(settings, updated_by="alice")
@@ -100,7 +100,7 @@ def test_latest_run_is_reported_for_shortcuts(client, db_path):
 
 
 def test_run_counts_are_per_user_but_catalog_is_shared(client, db_path):
-    """Lịch sử là của từng người; catalog là của công ty — status phải phản ánh đúng."""
+    """History is per-user and the catalog is company-wide; status must reflect this."""
     SQLiteServiceRepository(db_path).create_service(ServiceInput(name="ERP"), updated_by="alice")
     SQLiteSearchRunRepository(db_path).save_run(
         username="alice", provider="mock", criteria=SearchCriteria(), results=[]

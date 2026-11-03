@@ -1,8 +1,9 @@
-"""Fixture và helper dùng chung cho các test API.
+"""Shared fixtures and helpers for API tests.
 
-Bảy file test đều cần đúng ba thứ: một DB SQLite tạm, hai tài khoản để kiểm tra
-phân tách quyền, và một cách lấy header Authorization. Trước đây mỗi file tự
-chép lại cả ba — sửa cách khởi tạo là phải sửa bảy chỗ.
+Seven test files need the same three things: a temporary SQLite database, two
+accounts for checking access separation, and a way to get an Authorization
+header. Previously each file duplicated all three, so setup changes had to be
+made in seven places.
 """
 
 from __future__ import annotations
@@ -14,15 +15,15 @@ import pytest
 from saletool.db.sqlite_repo import SQLiteUserRepository
 from saletool.security import hash_password
 
-# Hai tài khoản: `alice` sở hữu dữ liệu, `bob` dùng để kiểm tra rằng không ai
-# đọc được lịch sử/job của người khác.
+# Two accounts: `alice` owns data, and `bob` verifies that users cannot read one
+# another's history or jobs.
 ALICE = ("alice", "s3cret-pass")
 BOB = ("bob", "another-pass")
 
 
 @pytest.fixture
 def db_path(tmp_path, monkeypatch):
-    """DB SQLite tạm + biến môi trường, kèm sẵn hai tài khoản."""
+    """Temporary SQLite database and environment, with two accounts ready."""
     path = tmp_path / "test.db"
     monkeypatch.setenv("SALETOOL_DB_BACKEND", "sqlite")
     monkeypatch.setenv("SALETOOL_DB_PATH", str(path))
@@ -36,16 +37,16 @@ def db_path(tmp_path, monkeypatch):
 
 
 def auth(client, username: str = ALICE[0], password: str = ALICE[1]) -> dict:
-    """Header Authorization cho 1 tài khoản đã có sẵn."""
+    """Authorization header for an existing account."""
     resp = client.post("/api/auth/login", json={"username": username, "password": password})
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
 def wait_for_job(client, headers: dict, url: str, timeout: float = 15.0) -> dict:
-    """Poll 1 job nền tới khi kết thúc, trả về trạng thái cuối.
+    """Poll a background job until it finishes and return its final state.
 
-    Job chạy bằng asyncio task trong event loop của TestClient nên không có
-    handle nào để await — poll là cách duy nhất.
+    The job runs as an asyncio task in TestClient's event loop, so there is no
+    handle to await; polling is the only option.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -57,12 +58,11 @@ def wait_for_job(client, headers: dict, url: str, timeout: float = 15.0) -> dict
 
 
 class StubProvider:
-    """Provider giả cho test route.
+    """Fake provider for route tests.
 
-    Sản phẩm chỉ còn Apollo, nhưng test của `/api/search` kiểm tra **route** chứ
-    không kiểm tra Apollo (ApolloProvider có bộ test riêng, mock ở tầng HTTP).
-    Stub này giữ vai trò cũ của MockProvider nhưng nằm trong test, không nằm
-    trong sản phẩm.
+    Apollo is the only product provider, but `/api/search` tests check the
+    **route**, not Apollo (ApolloProvider has separate tests with HTTP-level
+    mocks). This stub replaces the old MockProvider but exists only in tests.
     """
 
     name = "stub"
@@ -103,10 +103,10 @@ class StubProvider:
 
 @pytest.fixture
 def data_source_key(db_path):
-    """Cấu hình sẵn API key cho nguồn dữ liệu.
+    """Preconfigure the data source API key.
 
-    Từ khi key chuyển từ form sang Settings, mọi test chạy /api/search đều cần
-    bước này — nếu không route trả 400 "No API key configured".
+    Since the key moved from the form to Settings, every `/api/search` test needs
+    this setup; otherwise the route returns 400 "No API key configured".
     """
     from saletool.db.factory import get_settings_repository
 
@@ -119,10 +119,10 @@ def data_source_key(db_path):
 
 @pytest.fixture
 def stub_provider(monkeypatch, data_source_key):
-    """Thay nhà cung cấp mà route dựng ra bằng StubProvider.
+    """Replace the provider created by the route with StubProvider.
 
-    Kéo theo `data_source_key` vì route /api/search giờ đọc key từ Settings:
-    không có key thì route trả 400 trước cả khi chạm tới provider.
+    Also set `data_source_key` because `/api/search` now reads the key from
+    Settings; without it, the route returns 400 before reaching the provider.
     """
     monkeypatch.setattr(
         "saletool.api.routes.search.get_provider", lambda name, **kwargs: StubProvider()

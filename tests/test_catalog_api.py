@@ -57,8 +57,8 @@ def test_created_service_shows_up_in_the_list(client):
 
 
 def test_catalog_is_shared_between_users(client):
-    """Catalog là của công ty, không phải của từng người — bob phải thấy đúng
-    thứ alice thêm vào, khác với lịch sử search."""
+    """The catalog belongs to the company, not individual users; bob should see
+    what alice added, unlike search history."""
     client.post("/api/catalog", headers=auth(client), json=_service())
 
     bob_view = client.get("/api/catalog", headers=auth(client, "bob", "another-pass")).json()
@@ -136,7 +136,7 @@ def test_whitespace_and_empty_list_entries_are_cleaned(client):
 
     body = resp.json()
     assert body["name"] == "Data platform"
-    assert body["category"] is None  # chuỗi toàn khoảng trắng -> None, không phải ""
+    assert body["category"] is None  # A whitespace-only string becomes None, not "".
     assert body["target_industries"] == ["Retail", "Fintech"]
     assert body["keywords"] == []
 

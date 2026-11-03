@@ -1,11 +1,11 @@
-"""Test tầng 0 — chỗ này phải chính xác vì nó được ưu tiên hơn LLM."""
+"""Test stage 0, which must be accurate because it takes priority over the LLM."""
 
 from saletool.enrichment.structured import extract_structured
 
 JSON_LD_PAGE = """
 <html><head>
 <title>Acme Fintech</title>
-<meta property="og:description" content="Nền tảng thanh toán cho SME." />
+<meta property="og:description" content="Payments platform for SMEs." />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -47,36 +47,36 @@ def test_extracts_mailto_and_tel_links():
     assert "sales@acmefintech.vn" in data.emails
 
     digits_only = {"".join(ch for ch in p if ch.isdigit()) for p in data.phones}
-    assert "842899998888" in digits_only  # từ tel:
-    assert "842812345678" in digits_only  # từ JSON-LD telephone
+    assert "842899998888" in digits_only  # from tel:
+    assert "842812345678" in digits_only  # from JSON-LD telephone
 
 
 def test_falls_back_to_meta_and_title():
     html = """
     <html><head>
     <title>Beta Payments</title>
-    <meta name="description" content="Cổng thanh toán." />
+    <meta name="description" content="Payment gateway." />
     </head><body></body></html>
     """
     data = extract_structured(html, text="")
 
     assert data.name == "Beta Payments"
-    assert data.description == "Cổng thanh toán."
+    assert data.description == "Payment gateway."
 
 
 def test_tax_code_needs_a_nearby_keyword():
-    # Có từ khoá -> nhận
-    with_kw = extract_structured("<html></html>", text="Mã số thuế: 0312345678")
+    # With a keyword, accept it.
+    with_kw = extract_structured("<html></html>", text="M\xe3 s\u1ed1 thu\u1ebf: 0312345678")
     assert with_kw.tax_code == "0312345678"
 
-    # Không có từ khoá -> không nhận (tránh bắt nhầm số điện thoại/số nhà)
-    without_kw = extract_structured("<html></html>", text="Số tài khoản 0312345678")
+    # Without a keyword, reject it (avoid mistaking phone/street numbers).
+    without_kw = extract_structured("<html></html>", text="Account number 0312345678")
     assert without_kw.tax_code is None
 
 
 def test_filters_out_noise_emails():
     data = extract_structured(
-        "<html></html>", text="lien he: real@company.vn hoac noreply@example.com"
+        "<html></html>", text="contact: real@company.vn or noreply@example.com"
     )
 
     assert "real@company.vn" in data.emails
@@ -93,13 +93,13 @@ def test_deduplicates_emails_case_insensitively():
     assert data.emails == ["a@company.vn"]
 
 
-# --- Hồi quy: 2 lỗi phát hiện khi chạy thật với website mẫu ---
+# --- Regressions: two issues found on a real sample website ------------------
 
 
 def test_tax_code_is_not_reported_as_a_phone_number():
-    """Mã số thuế VN cũng là 10 chữ số bắt đầu bằng 0 -> khớp pattern số ĐT."""
+    """Vietnamese tax IDs are also 10 digits starting with 0, matching the phone pattern."""
     data = extract_structured(
-        "<html></html>", text="Mã số thuế: 0312345678. Hotline: 028 3822 1234"
+        "<html></html>", text="M\xe3 s\u1ed1 thu\u1ebf: 0312345678. Hotline: 028 3822 1234"
     )
 
     assert data.tax_code == "0312345678"
@@ -110,7 +110,7 @@ def test_tax_code_is_not_reported_as_a_phone_number():
 def test_same_phone_in_different_formats_is_deduplicated():
     from saletool.enrichment.structured import normalize_phone
 
-    # Ba cách viết phổ biến của cùng một số.
+    # Three common formats for the same number.
     assert normalize_phone("+84 28 3822 1234") == normalize_phone("+842838221234")
     assert normalize_phone("028 3822 1234") == normalize_phone("+842838221234")
 
@@ -135,11 +135,11 @@ SHARE_BUTTON_PAGE = """
 def test_share_buttons_are_not_treated_as_company_profiles():
     data = extract_structured(SHARE_BUTTON_PAGE, text="")
 
-    # Nút share nằm trước link thật trong HTML — link thật vẫn phải thắng.
+    # The share button precedes the real link in HTML; the real link must still win.
     assert data.social_links["facebook"] == "https://www.facebook.com/acmevn"
     assert "sharer" not in data.social_links["facebook"]
-    assert "twitter" not in data.social_links  # chỉ có intent/tweet -> bỏ hẳn
-    assert "youtube" not in data.social_links  # /watch là video, không phải kênh
+    assert "twitter" not in data.social_links  # Only intent/tweet URL; exclude it.
+    assert "youtube" not in data.social_links  # /watch is a video, not a channel.
 
 
 def test_social_url_is_stripped():
@@ -149,10 +149,10 @@ def test_social_url_is_stripped():
 
 
 def test_href_with_leading_whitespace_is_still_recognised():
-    """href trải trên nhiều dòng bắt đầu bằng xuống dòng/khoảng trắng.
+    """A multiline href starts with a newline or whitespace.
 
-    Trước đây bị loại ngay ở bước startswith() nên link mất hẳn, dù
-    social_profile() có strip — vì strip chạy sau cái cổng đó.
+    It used to be rejected at startswith(), losing the link even though
+    social_profile() strips whitespace; stripping happened after that check.
     """
     html = """
     <html><body>
@@ -167,4 +167,4 @@ def test_href_with_leading_whitespace_is_still_recognised():
 
     assert data.social_links.get("linkedin") == "https://www.linkedin.com/company/acme-vn"
     assert "sales@acme.vn" in data.emails
-    assert data.phones, "tel: có khoảng trắng đầu bị mất"
+    assert data.phones, "tel: with leading whitespace was lost"

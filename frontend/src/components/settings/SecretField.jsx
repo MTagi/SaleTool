@@ -1,13 +1,13 @@
 /**
- * Ô nhập API key.
+ * API key input.
  *
- * Backend không bao giờ trả key thật về trình duyệt, nên ô này **luôn rỗng**
- * cho tới khi người dùng gõ. Gõ vào là bật cờ `api_key_dirty`, và đó là tín
- * hiệu duy nhất cho biết lần Save này có key mới hay không
+ * The backend never returns the real key to the browser, so this field is
+ * **always empty** until the user types into it. Typing sets `api_key_dirty`, the
+ * only signal that this Save includes a new key.
  * (xem `lib/settings.js::toSavePayload`).
  *
- * Trước đây ba mục Settings mỗi mục chép lại đoạn này một lần, và lệch nhau ở
- * chỗ có/không có placeholder — gom về một chỗ để chúng không lệch nữa.
+ * The three Settings fields previously duplicated this logic and differed in
+ * whether they had a placeholder. Keep it in one place to avoid drift.
  */
 export default function SecretField({ value, onChange, label = "API key", placeholder }) {
   const saved = Boolean(value.api_key_set);

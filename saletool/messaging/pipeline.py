@@ -1,12 +1,13 @@
-"""Dựng ngữ cảnh, gọi LLM viết message, rồi **kiểm lại bằng code**.
+"""Build context, ask the LLM to write a message, then **validate it in code**.
 
-Bước kiểm lại là phần quan trọng nhất ở đây. Prompt có ghi rõ giới hạn ký tự thì
-model vẫn vượt, và vẫn để sót `[Tên công ty]` khi thiếu dữ liệu. Với LinkedIn,
-vượt giới hạn không phải lỗi thẩm mỹ — nền tảng **từ chối gửi**. Nên mọi ràng
-buộc đo được đều được kiểm lại sau khi model trả kết quả và ghi vào `warnings`,
-hiển thị ngay cạnh message.
+Validation is the most important part. Models can exceed a character limit even
+when the prompt states it clearly, and may leave `[Company name]` placeholders if
+data is missing. On LinkedIn, exceeding the limit is not a cosmetic issue — the
+platform **rejects the message**. Every measurable constraint is checked after
+generation and added to `warnings`, shown next to the message.
 
-Code không tự sửa message: cắt ngang một câu còn tệ hơn để người dùng tự sửa.
+Code does not edit messages automatically; truncating a sentence is worse than
+letting users fix it themselves.
 """
 
 from __future__ import annotations
@@ -32,14 +33,27 @@ from saletool.prompt_text import MAX_LIST_ITEMS, clip_text
 
 logger = logging.getLogger(__name__)
 
-# Dấu hiệu model để sót chỗ trống thay vì bỏ hẳn câu. Gửi nguyên si ra ngoài là
-# hỏng cả lần tiếp cận, nên bắt ở đây.
+# Detect placeholders the model left instead of removing the sentence. Sending
+# them as-is would undermine the outreach, so flag them here.
 _PLACEHOLDER_PATTERNS = [
     (re.compile(r"\[[^\]\n]{2,40}\]"), "square-bracket placeholder"),
     (re.compile(r"\{\{[^}\n]{1,40}\}\}"), "curly-brace placeholder"),
     (re.compile(r"<[A-Za-z _]{2,30}>"), "angle-bracket placeholder"),
     (re.compile(r"\b(?:TBD|XYZ|ABC Company|Your Company|Company Name)\b", re.I), "filler text"),
-    (re.compile(r"\bas an AI\b|\bI am an AI\b|language model", re.I), "model talking about itself"),
+    # A bare `I am an AI` pattern falsely flags real people. This sender profile
+    # uses the title "AI Engineer", so every email draft triggered the warning.
+    # If warnings always appear, users stop reading them. Flag model self-reference
+    # only when the phrase is not followed by a profession: "I am an AI engineer
+    # at X" is a sender statement, while "I am an AI assistant/model" is leakage.
+    (
+        re.compile(
+            r"\bas an AI\b(?!\s+(?:engineer|developer|specialist|consultant|researcher|architect))"
+            r"|\bI(?:'m| am)\s+an?\s+AI(?!\s+(?:engineer|developer|specialist|consultant|researcher|architect))"
+            r"|language model",
+            re.I,
+        ),
+        "model talking about itself",
+    ),
 ]
 
 
@@ -67,11 +81,11 @@ def build_prospect_brief(
     enrichment: CompanyEnrichment | None = None,
     match: CompanyMatch | None = None,
 ) -> str:
-    """Mọi thứ biết về người nhận + công ty của họ.
+    """Everything known about the recipient and their company.
 
-    Phần giá trị nhất nằm ở `match`: lý do LLM chấm điểm ở bước matching chính là
-    câu chuyện để mở đầu message. Không có nó thì message vẫn viết được nhưng
-    chung chung hơn hẳn.
+    The most valuable part is `match`: the rationale from matching gives the
+    message an opening. Without it, a message can still be written but will be
+    much more generic.
     """
     lines = [
         f"Contact: {contact.full_name}",
@@ -83,6 +97,13 @@ def build_prospect_brief(
         if value:
             lines.append(f"{label}: {value}")
 
+    add("Apollo description", (company.description or "")[:1000])
+    add("Apollo founded year", str(company.founded_year) if company.founded_year else None)
+    add("Apollo annual revenue (provider estimate)", company.annual_revenue)
+    add("Apollo total funding", company.total_funding)
+    add("Apollo technologies", ", ".join(company.technologies[:20]))
+    add("Apollo keywords", ", ".join(company.keywords[:20]))
+    add("Apollo address", company.address)
     add("Industry", company.industry or (enrichment.industry if enrichment else None))
     add("Location", company.location or (enrichment.headquarters if enrichment else None))
     if company.employee_count:
@@ -135,10 +156,10 @@ def build_service_brief(service: Service | None, fit_rationale: str | None = Non
 
 
 def validate_message(message: GeneratedMessage, spec: ChannelSpec) -> list[str]:
-    """Đối chiếu message với ràng buộc thật của kênh gửi.
+    """Check the message against actual constraints for its channel.
 
-    Trả về danh sách cảnh báo — không sửa, không chặn. Người dùng thấy vấn đề
-    ngay cạnh nội dung và tự quyết định sửa hay gửi.
+    Return warnings without editing or blocking. Users see issues next to the
+    content and decide whether to fix or send it.
     """
     warnings: list[str] = []
     body = message.body.strip()
@@ -184,7 +205,7 @@ def validate_message(message: GeneratedMessage, spec: ChannelSpec) -> list[str]:
             "Enrich the company or run matching first."
         )
 
-    # Không gọi tên người nhận là dấu hiệu message viết chung cho cả công ty.
+    # Omitting the recipient's name can indicate a generic company-wide message.
     first_name = message.contact_name.strip().split()[-1] if message.contact_name.strip() else ""
     if first_name and first_name.lower() not in body.lower():
         warnings.append(f"Does not address {message.contact_name} by name.")
@@ -204,11 +225,13 @@ async def generate_message(
     match: CompanyMatch | None = None,
     custom_instructions: str | None = None,
 ) -> GeneratedMessage:
-    """Viết 1 message. Lỗi LLM ghi vào `error` chứ không raise, để 1 contact hỏng
-    không làm mất cả mẻ."""
+    """Write one message. Store LLM errors in `error` instead of raising, so one
+    failed contact does not lose the whole batch."""
     spec = MESSAGE_CHANNELS[channel]
 
     message = GeneratedMessage(
+        company_id=company.id,
+        contact_id=contact.id,
         company_name=company.name,
         contact_name=contact.full_name,
         contact_title=contact.title,
@@ -238,7 +261,7 @@ async def generate_message(
             custom_instructions=custom_instructions,
         )
     except LLMError as exc:
-        logger.warning("Viết message thất bại cho '%s': %s", contact.full_name, exc)
+        logger.warning("Message generation failed for '%s': %s", contact.full_name, exc)
         message.error = str(exc)[:300]
         return message
 

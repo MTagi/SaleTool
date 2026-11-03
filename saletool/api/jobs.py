@@ -1,13 +1,14 @@
-"""Chạy job nền (enrich, matching, message) + lưu tiến độ vào DB.
+"""Run background jobs (enrichment, matching, messaging) and save progress to the database.
 
-Vì sao chạy nền: enrich 1 công ty mất ~10–30 giây (nhiều trang + LLM); matching
-và message tốn 1 lượt gọi LLM mỗi công ty/contact. Chạy cả danh sách sẽ vượt xa
-timeout của một HTTP request. Client tạo job rồi poll trạng thái.
+Why background jobs: enriching one company takes ~10–30 seconds (multiple pages
+and an LLM); matching and messaging make one LLM call per company/contact. A full
+list takes longer than an HTTP request timeout. The client creates a job and polls
+its status.
 
-Vì sao dùng asyncio task thay vì Celery/RQ: đây là tool nội bộ nhóm nhỏ, thêm
-Redis + worker process là quá nặng so với nhu cầu. Đánh đổi cần biết: **job đang
-chạy sẽ mất khi restart server** — nên trạng thái được ghi xuống DB sau mỗi công
-ty, và job còn "running" lúc khởi động sẽ được đánh dấu là failed.
+Why asyncio tasks instead of Celery/RQ: this is a small-team internal tool, and
+adding Redis and worker processes would be excessive. The trade-off is that
+**running jobs are lost on server restart**. Progress is saved after each company,
+and jobs still marked "running" at startup are marked failed.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from saletool.db.factory import (
     get_settings_repository,
 )
 from saletool.enrichment import enrich_company
+from saletool.identity import lookup_company_match, resolve_message_target
 from saletool.matching import (
     build_enrichment_index,
     lookup_enrichment,
@@ -46,34 +48,28 @@ from saletool.models import (
 
 logger = logging.getLogger(__name__)
 
-# Giữ tham chiếu tới task đang chạy để chúng không bị GC giữa chừng.
+# Keep references to running tasks so they are not garbage-collected prematurely.
 _running: set[asyncio.Task] = set()
 
-# Giới hạn số job chạy song song — tránh mở quá nhiều kết nối ra ngoài cùng lúc.
+# Limit concurrent jobs to avoid opening too many external connections at once.
 _semaphore = asyncio.Semaphore(2)
 
 
 def _now() -> str:
-    """Mốc thời gian tăng nghiêm ngặt — list_jobs sắp xếp theo created_at."""
+    """Strictly increasing timestamp; list_jobs sorts by created_at."""
     return now_iso()
 
 
-def _key(name: str) -> str:
-    """Khoá so khớp tên công ty/người: bỏ khoảng trắng thừa, không phân biệt hoa thường."""
-    return name.strip().lower()
-
-
 class JobProgress:
-    """Ghi vòng đời và tiến độ của một job xuống DB.
+    """Persist a job's lifecycle and progress to the database.
 
-    Cả ba runner đều đi đúng một trình tự: nhận job -> đánh dấu running -> với
-    mỗi phần tử thì ghi "đang làm cái này", chạy, ghi thành công hoặc thất bại
-    -> đóng lại. Trước đây mỗi runner tự viết lại trình tự đó bằng những cặp
-    `job.x = ...` + `repo.update_job(job)` rải rác, và rất dễ quên một lần ghi.
+    All three runners follow the same sequence: claim the job -> mark it running
+    -> for each item, record what is being processed, run it, record success or
+    failure -> close the job. Previously each runner repeated this with scattered
+    `job.x = ...` and `repo.update_job(job)` pairs, making a save easy to miss.
 
-    Ghi sau **mỗi** phần tử là cố ý: đó là thứ cho phép UI poll ra một bảng đang
-    dần đầy, và cũng là thứ giữ lại được kết quả đã chạy khi server chết giữa
-    chừng.
+    Saving after **every** item is intentional: the UI can poll a gradually
+    filling table, and completed results survive if the server stops mid-job.
     """
 
     def __init__(self, repo, job) -> None:
@@ -94,7 +90,7 @@ class JobProgress:
         self.save()
 
     def failed(self, label: str, reason: object) -> None:
-        """Đếm một thất bại. `error` là lỗi *gần nhất*, không phải lỗi duy nhất."""
+        """Count a failure. `error` stores the *most recent* error, not the only one."""
         self.job.failed += 1
         self.job.error = f"{label}: {reason}"[:500]
         self.save()
@@ -106,22 +102,23 @@ class JobProgress:
         self.save()
 
     def abort(self, reason: str) -> None:
-        """Job không chạy được chút nào — khác hẳn với chạy xong mà có phần tử lỗi."""
+        """The job could not run at all, unlike a completed job with failed items."""
         self.job.status = "failed"
         self.job.error = reason
+        self.job.current_target = None
         self.job.finished_at = _now()
         self.save()
 
     def save(self) -> None:
-        """Ghi job xuống DB sau khi runner tự sửa phần payload của nó."""
+        """Save the job after the runner updates its payload."""
         self._repo.update_job(self.job)
 
 
 def _claim(repo, username: str, job_id: str) -> JobProgress | None:
-    """Nhận job để chạy, hoặc None nếu nó đã xong/đã huỷ.
+    """Claim a job to run, or return None if it has finished or been cancelled.
 
-    Kiểm tra này không thừa: job được tạo và được chạy ở hai chỗ khác nhau, nên
-    tới lúc task thực sự chạy thì trạng thái có thể đã đổi.
+    This check is necessary: job creation and execution happen in different
+    places, so its status may change before the task actually starts.
     """
     job = repo.get_job(username, job_id)
     if not job or job.status not in ACTIVE_JOB_STATUSES:
@@ -129,8 +126,10 @@ def _claim(repo, username: str, job_id: str) -> JobProgress | None:
     return JobProgress(repo, job)
 
 
-def create_job(username: str, targets: list[EnrichTarget]) -> EnrichJobDetail:
-    """Tạo bản ghi job enrich ở trạng thái pending và lưu xuống DB."""
+def create_job(
+    username: str, targets: list[EnrichTarget], run_id: str | None = None
+) -> EnrichJobDetail:
+    """Create and persist an enrichment job in the pending state."""
     job = EnrichJobDetail(
         id=str(uuid.uuid4()),
         username=username,
@@ -138,21 +137,77 @@ def create_job(username: str, targets: list[EnrichTarget]) -> EnrichJobDetail:
         created_at=_now(),
         total=len(targets),
         targets=targets,
+        run_id=run_id,
     )
     get_enrich_job_repository().create_job(job)
     return job
 
 
 def start_job(job: EnrichJobDetail) -> None:
-    """Khởi chạy job enrich ở nền (fire-and-forget, có giữ tham chiếu)."""
-    _spawn(_run_job(job.id, job.username))
+    """Start an enrichment job in the background (fire-and-forget, retaining a reference)."""
+    _spawn(lambda: _run_job(job.id, job.username), job, get_enrich_job_repository)
 
 
-def _spawn(coro) -> None:
-    """Chạy coroutine ở nền, giữ tham chiếu để task không bị GC giữa chừng."""
-    task = asyncio.create_task(coro)
+def _spawn(runner, job, repository_factory) -> None:
+    """Run a coroutine in the background and retain it to prevent premature garbage collection."""
+    task = asyncio.create_task(_guard_job(runner, job, repository_factory))
     _running.add(task)
-    task.add_done_callback(_running.discard)
+
+    def done(task):
+        _running.discard(task)
+        # The task may be cancelled before the coroutine executes its first statement.
+        if task.cancelled():
+            _abort_background_job(
+                job, repository_factory, "The server stopped. Start this job again."
+            )
+
+    task.add_done_callback(done)
+
+
+async def _guard_job(runner, job, repository_factory) -> None:
+    """Close the job if an error occurs outside the item loop or during server shutdown."""
+    try:
+        await runner()
+    except asyncio.CancelledError:
+        _abort_background_job(job, repository_factory, "The server stopped. Start this job again.")
+        raise
+    except Exception:
+        logger.exception("Job %s ended unexpectedly", job.id)
+        _abort_background_job(
+            job, repository_factory, "The job stopped unexpectedly. Start it again."
+        )
+
+
+def _abort_background_job(job, repository_factory, reason: str) -> None:
+    try:
+        repo = repository_factory()
+        saved = repo.get_job(job.username, job.id)
+        if saved and saved.status in ACTIVE_JOB_STATUSES:
+            saved.current_target = None
+            JobProgress(repo, saved).abort(reason)
+    except Exception:
+        logger.exception("Could not save the final state of job %s", job.id)
+
+
+def recover_interrupted_jobs() -> None:
+    """The previous process lost the in-memory task; keep results but close its state."""
+    finished_at = _now()
+    reason = "The server restarted before this job finished. Start it again."
+    for factory in (
+        get_enrich_job_repository,
+        get_match_job_repository,
+        get_message_job_repository,
+    ):
+        factory().fail_active_jobs(reason, finished_at)
+
+
+async def shutdown_jobs() -> None:
+    tasks = list(_running)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _message_requests.clear()
 
 
 async def _run_job(job_id: str, username: str) -> None:
@@ -170,7 +225,7 @@ async def _run_job(job_id: str, username: str) -> None:
             try:
                 result = await enrich_company(target, settings)
             except Exception as exc:
-                logger.exception("Enrich thất bại cho '%s'", target.company_name)
+                logger.exception("Enrichment failed for '%s'", target.company_name)
                 progress.failed(target.company_name, exc)
             else:
                 job.results.append(result)
@@ -178,21 +233,21 @@ async def _run_job(job_id: str, username: str) -> None:
 
         progress.finish()
 
-    logger.info("Job enrich %s xong: %d thành công, %d lỗi", job_id, job.completed, job.failed)
+    logger.info("Enrichment job %s finished: %d succeeded, %d failed", job_id, job.completed, job.failed)
 
 
 # ---------------------------------------------------------------------------
-# Job matching: chấm 1 lần search đã lưu với catalog dịch vụ
+# Matching job: score a saved search run against the service catalog.
 # ---------------------------------------------------------------------------
 
 
 def create_match_job(
     username: str, run_id: str, services: list[Service], total: int, objective: str | None = None
 ) -> MatchJobDetail:
-    """Tạo bản ghi job matching ở trạng thái pending và lưu xuống DB.
+    """Create and persist a matching job in the pending state.
 
-    `services` được chụp lại nguyên vẹn vào job: sửa hoặc xoá dịch vụ trong
-    catalog sau này không được làm sai lệch kết quả đã chạy.
+    `services` are snapshotted in the job so later catalog edits or deletions do
+    not alter its results.
     """
     job = MatchJobDetail(
         id=str(uuid.uuid4()),
@@ -209,16 +264,16 @@ def create_match_job(
 
 
 def start_match_job(job: MatchJobDetail) -> None:
-    """Khởi chạy job matching ở nền."""
-    _spawn(_run_match_job(job.id, job.username))
+    """Start a matching job in the background."""
+    _spawn(lambda: _run_match_job(job.id, job.username), job, get_match_job_repository)
 
 
 def _collect_enrichments(username: str, limit: int = 20) -> dict:
-    """Gom kết quả enrich gần đây của user để trộn vào hồ sơ công ty.
+    """Collect the user's recent enrichment results to augment company profiles.
 
-    Enrich và matching là hai bước tách rời, nên công ty nào đã enrich rồi thì
-    ở đây được chấm trên hồ sơ dày hơn hẳn. Không có thì vẫn chấm được, chỉ là
-    LLM có ít căn cứ hơn và sẽ tự hạ điểm theo hướng dẫn trong prompt.
+    Enrichment and matching are separate steps, so previously enriched companies
+    are scored with richer profiles. Scoring still works without enrichment, but
+    the LLM has less evidence and will lower scores as directed by the prompt.
     """
     repo = get_enrich_job_repository()
     results = []
@@ -257,29 +312,29 @@ async def _run_match_job(job_id: str, username: str) -> None:
                     result, job.services, settings, job.objective, enrichment
                 )
             except Exception as exc:
-                logger.exception("Matching thất bại cho '%s'", result.company.name)
+                logger.exception("Matching failed for '%s'", result.company.name)
                 progress.failed(result.company.name, exc)
             else:
                 matches.append(match)
-                # Công ty chấm lỗi vẫn nằm trong kết quả (xếp cuối bảng), nhưng
-                # đếm là thất bại — "điểm thấp" và "không chấm được" là hai việc.
+                # Keep companies with scoring errors in the results (at the end),
+                # but count them as failures: a low score differs from no score.
                 if match.error:
                     progress.failed(result.company.name, match.error)
                 else:
                     progress.succeeded()
 
-            # Ghi kết quả đã xếp hạng sau mỗi công ty để client thấy bảng dần
-            # hình thành thay vì chờ trắng tới cuối.
+            # Save rankings after each company so the client sees the table fill
+            # in instead of waiting for a blank screen until the end.
             job.results = rank_matches(matches)
             progress.save()
 
         progress.finish()
 
-    logger.info("Job matching %s xong: %d chấm được, %d lỗi", job_id, job.completed, job.failed)
+    logger.info("Matching job %s finished: %d scored, %d failed", job_id, job.completed, job.failed)
 
 
 # ---------------------------------------------------------------------------
-# Job sinh message gửi contact
+# Message generation job for contacts.
 # ---------------------------------------------------------------------------
 
 
@@ -303,25 +358,22 @@ def create_message_job(
     return job
 
 
-# Tham số của job (danh sách người nhận, dịch vụ, hướng dẫn thêm) chỉ cần trong
-# lúc chạy nên giữ trong bộ nhớ; bản thân job đã nằm trong DB. Restart server
-# thì job pending mất tham số — cùng đánh đổi với các job nền khác ở đây.
+# Job parameters (recipients, service, and additional instructions) are only
+# needed at runtime, so keep them in memory; the job itself is in the database.
+# Pending jobs lose these parameters on server restart, the same trade-off as
+# other background jobs here.
 _message_requests: dict[str, MessageRequest] = {}
 
 
 def start_message_job(job: MessageJobDetail) -> None:
-    _spawn(_run_message_job(job.id, job.username))
-
-
-def _find_contact(result, contact_name: str):
-    """Tìm contact theo tên trong một công ty của search run. None nếu không có."""
-    wanted = _key(contact_name)
-    return next((c for c in result.contacts if _key(c.full_name) == wanted), None)
+    _spawn(lambda: _run_message_job(job.id, job.username), job, get_message_job_repository)
 
 
 def _not_in_run(job: MessageJobDetail, target) -> GeneratedMessage:
-    """Chỗ giữ chỗ cho contact không còn trong run — vẫn phải hiện ra ở bảng kết quả."""
+    """Placeholder for a contact missing from the run; it must still appear in results."""
     return GeneratedMessage(
+        company_id=target.company_id,
+        contact_id=target.contact_id,
         company_name=target.company_name,
         contact_name=target.contact_name,
         channel=job.channel,
@@ -355,21 +407,20 @@ async def _run_message_job(job_id: str, username: str) -> None:
 
         settings = get_settings_repository().get_settings()
 
-        # Ngữ cảnh phụ: enrich (mô tả công ty) và matching (lý do phù hợp).
-        # Thiếu cái nào thì message vẫn viết được, chỉ chung chung hơn.
+        # Additional context: enrichment (company description) and matching
+        # (reason for fit). Messages can still be written without either, but
+        # will be more generic.
         enrichment_index = _collect_enrichments(username)
-        matches: dict[str, CompanyMatch] = {}
+        matches: list[CompanyMatch] = []
         if request.match_job_id:
             match_job = get_match_job_repository().get_job(username, request.match_job_id)
             if match_job:
-                matches = {_key(m.company_name): m for m in match_job.results}
+                matches = match_job.results
 
-        # Người dùng ép một dịch vụ cụ thể, hoặc để trống thì lấy dịch vụ khớp
-        # nhất của từng công ty theo kết quả matching.
+        # Use the service specified by the user, or the best-matching service for
+        # each company if none was specified.
         forced_service = (
-            get_service_repository().get_service(request.service_id)
-            if request.service_id
-            else None
+            get_service_repository().get_service(request.service_id) if request.service_id else None
         )
         service_cache: dict[str, Service | None] = {}
 
@@ -384,21 +435,26 @@ async def _run_message_job(job_id: str, username: str) -> None:
                 )
             return service_cache[match.best_service_id]
 
-        companies = {_key(r.company.name): r for r in run.results}
         progress.start()
 
         for target in request.targets:
             label = f"{target.contact_name} ({target.company_name})"
             progress.working_on(label)
 
-            result = companies.get(_key(target.company_name))
-            contact = _find_contact(result, target.contact_name) if result else None
+            try:
+                result, contact = resolve_message_target(run, target)
+            except ValueError as exc:
+                message = _not_in_run(job, target)
+                message.error = str(exc)
+                job.results.append(message)
+                progress.failed(label, exc)
+                continue
             if not result or not contact:
                 job.results.append(_not_in_run(job, target))
                 progress.failed(label, "not in the selected search run")
                 continue
 
-            match = matches.get(_key(result.company.name))
+            match = lookup_company_match(matches, result)
             enrichment = lookup_enrichment(
                 enrichment_index, result.company.name, result.company.domain
             )
@@ -417,12 +473,12 @@ async def _run_message_job(job_id: str, username: str) -> None:
                     custom_instructions=request.custom_instructions,
                 )
             except Exception as exc:
-                logger.exception("Sinh message thất bại cho '%s'", target.contact_name)
+                logger.exception("Message generation failed for '%s'", target.contact_name)
                 progress.failed(target.contact_name, exc)
             else:
                 job.results.append(message)
-                # Message viết ra nhưng vi phạm giới hạn kênh cũng là thất bại —
-                # nó không gửi được, dù model đã trả lời.
+                # A generated message that violates channel limits is also a
+                # failure: it cannot be sent, even though the model returned it.
                 if message.error:
                     progress.failed(target.contact_name, message.error)
                 else:
@@ -430,4 +486,4 @@ async def _run_message_job(job_id: str, username: str) -> None:
 
         progress.finish()
 
-    logger.info("Job message %s xong: %d viết được, %d lỗi", job_id, job.completed, job.failed)
+    logger.info("Message job %s finished: %d generated, %d failed", job_id, job.completed, job.failed)

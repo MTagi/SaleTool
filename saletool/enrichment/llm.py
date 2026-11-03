@@ -1,12 +1,13 @@
-"""Gọi LLM để trích xuất phần KHÔNG parse được bằng code thường.
+"""Use an LLM to extract fields that regular code could not parse.
 
-Phần plumbing (gọi HTTP, hạ cấp json_schema -> json_object, bóc code fence) nằm
-ở `saletool.llm_api` vì matching cũng cần đúng những thứ đó. Ở đây chỉ còn
-prompt, schema và cách gộp kết quả.
+The API plumbing (HTTP calls, json_schema -> json_object fallback, and code-fence
+removal) lives in `saletool.llm_api` because matching needs it too. This module
+contains only the prompt, schema, and result merging.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 
 from pydantic import BaseModel, ValidationError
@@ -27,7 +28,7 @@ _SYSTEM_PROMPT = (
 
 
 class LLMExtraction(BaseModel):
-    """Các trường LLM phụ trách — phần mơ hồ mà regex/JSON-LD không lo được."""
+    """Fields handled by the LLM — ambiguous data that regex/JSON-LD cannot extract."""
 
     description: str | None = None
     industry: str | None = None
@@ -74,30 +75,30 @@ class LLMClient:
     async def extract_company_info(
         self, company_name: str, page_text: str, source_url: str | None = None
     ) -> LLMExtraction:
-        user_prompt = (
-            f"Company: {company_name}\n"
-            f"Source URL: {source_url or 'unknown'}\n\n"
-            "Extract company information from the text below.\n"
-            "For 'executives', include only people explicitly described as leaders "
-            "(CEO, founder, director, head of…), with their stated title.\n\n"
-            "--- TEXT START ---\n"
-            f"{page_text}\n"
-            "--- TEXT END ---"
-        )
-
         payload = {
             "model": self.settings.model,
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_output_tokens,
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "company": company_name,
+                            "source_url": source_url,
+                            "instructions": "Extract company information; include only explicitly stated leaders and titles.",
+                            "evidence": page_text,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
             ],
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": "company_info", "strict": True, "schema": _JSON_SCHEMA},
             },
-            # Chỉ route tới provider hỗ trợ đủ tham số đã gửi (gồm response_format).
+            # Route only to providers that support all supplied parameters (including response_format).
             "provider": {"require_parameters": True},
         }
 
@@ -106,9 +107,9 @@ class LLMClient:
         try:
             return LLMExtraction.model_validate(data)
         except ValidationError as exc:
-            # Không tin tuyệt đối schema enforcement của provider — nên tới đây
-            # vẫn có thể lệch. Giữ lại phần dùng được thay vì bỏ cả kết quả.
-            logger.warning("Kết quả LLM lệch schema, dùng phần hợp lệ: %s", exc)
+            # Do not fully trust provider schema enforcement; results may still
+            # differ here. Keep usable fields instead of discarding everything.
+            logger.warning("LLM result did not match schema; using valid fields: %s", exc)
             return LLMExtraction.model_validate(
                 {k: v for k, v in data.items() if k in LLMExtraction.model_fields}
             )

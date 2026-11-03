@@ -1,16 +1,16 @@
-"""Suy luận seniority (cấp bậc) từ chức danh (title) dạng tự do.
+"""Infer seniority from free-form job titles.
 
-Hữu ích khi dữ liệu được import thủ công (vd: export từ Sales Navigator)
-và không có sẵn cột "seniority" chuẩn hoá như các API provider (Apollo...).
+Useful when data is imported manually (e.g. from Sales Navigator) and lacks a
+normalized "seniority" field like those provided by APIs such as Apollo.
 """
 
 from __future__ import annotations
 
 import re
 
-# Thứ tự ưu tiên: kiểm tra theo thứ tự này, khớp đầu tiên thắng.
-# Dùng \b (word boundary) khi so khớp để tránh khớp nhầm chuỗi con bên trong
-# từ khác (vd: "cto" không được khớp nhầm vào "director").
+# Priority order: check in this order; the first match wins.
+# Use \b (word boundary) to avoid matching substrings inside other words
+# (e.g. "cto" should not match "director").
 _KEYWORD_TO_SENIORITY: list[tuple[str, list[str]]] = [
     ("owner", ["owner", "proprietor"]),
     ("founder", ["founder", "co-founder", "cofounder"]),
@@ -39,7 +39,7 @@ _KEYWORD_TO_SENIORITY: list[tuple[str, list[str]]] = [
 ]
 
 def infer_seniority(title: str | None) -> str | None:
-    """Đoán seniority level từ chuỗi title tự do. Trả về None nếu không đoán được."""
+    """Infer seniority from a free-form title. Return None if it cannot be inferred."""
 
     if not title:
         return None

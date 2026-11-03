@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { useToast } from "../context/ToastContext";
 import { useAppStatus } from "../context/StatusContext";
 
 const EMPTY_SERVICE = {
@@ -68,12 +70,47 @@ function completeness(service) {
 
 export default function Catalog() {
   const { refresh: refreshStatus } = useAppStatus();
+  const { show } = useToast();
   const [services, setServices] = useState(null);
   const [form, setForm] = useState(EMPTY_SERVICE);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const dialogRef = useRef(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+
+  useEffect(() => {
+    if (!formOpen) return;
+    const dialog = dialogRef.current;
+    const focused = document.activeElement;
+    const overflow = document.body.style.overflow;
+    dialog.showModal();
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog.close();
+      document.body.style.overflow = overflow;
+      focused?.focus();
+    };
+  }, [formOpen]);
+
+  function startAdd() {
+    setEditingId(null);
+    setForm(EMPTY_SERVICE);
+    setDirty(false);
+    setError(null);
+    setNotice(null);
+    setFormOpen(true);
+  }
+
+  function requestClose() {
+    if (saving) return;
+    if (dirty && !window.confirm("Discard unsaved changes?")) return;
+    cancelEdit();
+    setError(null);
+  }
 
   const load = useCallback(async () => {
     try {
@@ -90,6 +127,7 @@ export default function Catalog() {
   }, [load]);
 
   function set(field, value) {
+    setDirty(true);
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
@@ -98,16 +136,20 @@ export default function Catalog() {
     setForm(toForm(service));
     setNotice(null);
     setError(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setDirty(false);
+    setFormOpen(true);
   }
 
   function cancelEdit() {
+    setFormOpen(false);
+    setDirty(false);
     setEditingId(null);
     setForm(EMPTY_SERVICE);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
     setNotice(null);
 
@@ -135,17 +177,18 @@ export default function Catalog() {
     }
   }
 
-  async function handleDelete(service) {
-    if (!window.confirm(`Delete "${service.name}" from the catalog?`)) return;
-
+  async function handleDelete() {
+    if (!pendingDelete) return;
     setError(null);
     try {
-      await api.deleteService(service.id);
-      if (editingId === service.id) cancelEdit();
-      setNotice(`Deleted "${service.name}".`);
+      await api.deleteService(pendingDelete.id);
+      if (editingId === pendingDelete.id) cancelEdit();
+      show(`Deleted "${pendingDelete.name}" from the catalog.`);
+      setPendingDelete(null);
       await load();
     } catch (err) {
-      setError(err.message || "Couldn't delete the service.");
+      show(err.message || "Couldn't delete the service.", { tone: "error" });
+      setPendingDelete(null);
     }
   }
 
@@ -160,11 +203,12 @@ export default function Catalog() {
           </p>
         </div>
         <div className="toolbar">
+          <button type="button" className="primary" onClick={startAdd}>Add a service</button>
           <Link to="/matching">Match to companies</Link>
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && !formOpen && <p className="error" role="alert">{error}</p>}
       {notice && <p className="success">{notice}</p>}
 
       <div className="cols">
@@ -184,7 +228,7 @@ export default function Catalog() {
               <div className="empty-state">
                 <p>Nothing in the catalog yet.</p>
                 <p className="muted small">
-                  Add your first service below. Matching and message generation both read this list.
+                  Use Add a service to create your first entry. Matching and message generation both read this list.
                 </p>
               </div>
             )}
@@ -235,7 +279,7 @@ export default function Catalog() {
                             <button className="link-button" onClick={() => startEdit(service)}>
                               Edit
                             </button>{" "}
-                            <button className="link-button danger" onClick={() => handleDelete(service)}>
+                            <button className="link-button danger" onClick={() => setPendingDelete(service)}>
                               Delete
                             </button>
                           </td>
@@ -248,17 +292,32 @@ export default function Catalog() {
             )}
           </section>
 
+          <ConfirmDialog
+            open={Boolean(pendingDelete)}
+            title="Delete this service?"
+            body={`This removes "${pendingDelete?.name || "this service"}" from the catalog and it will no longer be offered when matching.`}
+            busy={false}
+            onClose={() => setPendingDelete(null)}
+            onConfirm={handleDelete}
+            confirmLabel="Delete service"
+          />
+
+          {formOpen && <dialog ref={dialogRef} className="catalog-dialog" aria-labelledby="catalog-form-title"
+            onCancel={e => { e.preventDefault(); requestClose(); }}>
           <form onSubmit={handleSubmit}>
             <section className="card2">
               <header>
-                <h2>{editingId ? "Edit service" : "Add a service"}</h2>
+                <h2 id="catalog-form-title">{editingId ? "Edit service" : "Add a service"}</h2>
+                <button type="button" className="settings-close" aria-label="Close service form" disabled={saving} onClick={requestClose}>&times;</button>
               </header>
-              <div className="cb">
+              <fieldset className="cb catalog-fields" disabled={saving}>
+                {error && <p className="error" role="alert">{error}</p>}
                 <div className="g2">
                   <label>
                     Name
                     <input
                       type="text"
+                      required
                       value={form.name}
                       onChange={(e) => set("name", e.target.value)}
                       placeholder="ERP implementation"
@@ -339,19 +398,18 @@ export default function Catalog() {
                   Offer this service when matching
                 </label>
 
-                <div className="toolbar form-actions">
+              </fieldset>
+                <div className="toolbar form-actions catalog-form-footer">
                   <button type="submit" className="primary" disabled={saving}>
                     {saving ? "Saving…" : editingId ? "Save changes" : "Add service"}
                   </button>
-                  {editingId && (
-                    <button type="button" className="secondary" onClick={cancelEdit}>
+                  <button type="button" className="secondary" disabled={saving} onClick={requestClose}>
                       Cancel
                     </button>
-                  )}
                 </div>
-              </div>
             </section>
           </form>
+          </dialog>}
         </div>
 
         <div className="rail">

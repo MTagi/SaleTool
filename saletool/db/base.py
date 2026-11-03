@@ -1,8 +1,8 @@
-"""Interface lưu trữ tài khoản và lịch sử tìm kiếm, độc lập với DB cụ thể.
+"""Storage interfaces for accounts and search history, independent of a specific database.
 
-Toàn bộ API/CLI chỉ nói chuyện qua interface này — muốn đổi từ SQLite sang
-MongoDB (hoặc bất kỳ DB nào khác) chỉ cần viết thêm 1 implementation mới,
-không phải sửa route hay logic auth/search.
+The API/CLI only use these interfaces. Switching from SQLite to MongoDB (or any
+other database) only requires another implementation, not changes to routes or
+authentication/search logic.
 """
 
 from __future__ import annotations
@@ -30,15 +30,15 @@ from saletool.models import (
 class UserRepository(ABC):
     @abstractmethod
     def create_user(self, username: str, password_hash: str) -> None:
-        """Tạo tài khoản mới. Raise ValueError nếu username đã tồn tại."""
+        """Create an account. Raise ValueError if the username already exists."""
 
     @abstractmethod
     def get_password_hash(self, username: str) -> str | None:
-        """Trả về password hash đã lưu, hoặc None nếu không tìm thấy user."""
+        """Return the saved password hash, or None if the user is not found."""
 
     @abstractmethod
     def update_password_hash(self, username: str, password_hash: str) -> None:
-        """Cập nhật password hash cho user đã tồn tại. Raise ValueError nếu không tìm thấy."""
+        """Update the password hash for an existing user. Raise ValueError if not found."""
 
 
 class SearchRunRepository(ABC):
@@ -50,63 +50,66 @@ class SearchRunRepository(ABC):
         criteria: SearchCriteria,
         results: list[CompanyResult],
     ) -> SearchRunSummary:
-        """Lưu 1 lần chạy search, trả về summary (kèm id + created_at đã sinh)."""
+        """Save a search run and return its summary (including generated id and created_at)."""
 
     @abstractmethod
     def list_runs(self, username: str, limit: int = 20) -> list[SearchRunSummary]:
-        """Liệt kê các lần search gần nhất của user, mới nhất trước."""
+        """List the user's recent search runs, newest first."""
 
     @abstractmethod
     def get_run(self, username: str, run_id: str) -> SearchRunDetail | None:
-        """Chi tiết đầy đủ (kèm results) 1 lần search. None nếu không tồn tại
-        hoặc không thuộc về user này (không cho xem lịch sử của người khác)."""
+        """Full details (including results) for a search run. Return None if it does not
+        exist or does not belong to this user (users cannot view another's history)."""
 
     @abstractmethod
     def get_latest_run(self, username: str) -> SearchRunDetail | None:
-        """Lần search gần nhất của user — dùng cho tải file khi không chỉ định run_id."""
+        """The user's latest search run, used for downloads when run_id is omitted."""
 
+    @abstractmethod
+    def delete_run(self, username: str, run_id: str) -> bool:
+        """Delete one of the user's search runs. Return False if missing or not owned by the user."""
 
 class SettingsRepository(ABC):
-    """Cấu hình phạm vi toàn hệ thống (1 bản ghi duy nhất), không per-user.
+    """System-wide configuration (one record), not per-user.
 
-    API key được lưu ở dạng đã mã hoá — xem saletool/crypto.py.
+    API keys are stored encrypted; see saletool/crypto.py.
     """
 
     @abstractmethod
     def get_settings(self) -> AppSettings:
-        """Trả về cấu hình hiện tại (kèm API key đã giải mã). Trả về mặc định nếu chưa từng lưu."""
+        """Return the current configuration (including decrypted API keys), or defaults if never saved."""
 
     @abstractmethod
     def save_settings(self, settings: AppSettings, updated_by: str) -> AppSettings:
-        """Ghi đè cấu hình. Trả về bản đã lưu (kèm updated_at/updated_by)."""
+        """Replace the configuration and return the saved version (including updated_at/updated_by)."""
 
 
 class ServiceRepository(ABC):
-    """Catalog dịch vụ của chính công ty — phạm vi toàn hệ thống, không per-user.
+    """The company's service catalog — system-wide, not per-user.
 
-    Cả đội bán chung một bộ dịch vụ nên không tách theo user; `updated_by` ghi
-    lại ai sửa lần cuối.
+    The sales team shares one service list, so it is not separated by user;
+    `updated_by` records who last changed it.
     """
 
     @abstractmethod
     def list_services(self, include_inactive: bool = True) -> list[Service]:
-        """Toàn bộ catalog, sắp theo tên."""
+        """Return the full catalog, sorted by name."""
 
     @abstractmethod
     def get_service(self, service_id: str) -> Service | None:
-        """1 dịch vụ theo id. None nếu không tồn tại."""
+        """Get one service by ID. Return None if it does not exist."""
 
     @abstractmethod
     def create_service(self, payload: ServiceInput, updated_by: str) -> Service:
-        """Thêm dịch vụ mới, trả về bản đã lưu (kèm id + timestamp đã sinh)."""
+        """Add a service and return the saved version (including generated ID and timestamp)."""
 
     @abstractmethod
     def update_service(self, service_id: str, payload: ServiceInput, updated_by: str) -> Service:
-        """Ghi đè 1 dịch vụ. Raise ValueError nếu id không tồn tại."""
+        """Replace a service. Raise ValueError if the ID does not exist."""
 
     @abstractmethod
     def delete_service(self, service_id: str) -> bool:
-        """Xoá 1 dịch vụ. Trả về False nếu id không tồn tại."""
+        """Delete a service. Return False if the ID does not exist."""
 
 
 TSummary = TypeVar("TSummary")
@@ -114,38 +117,51 @@ TDetail = TypeVar("TDetail")
 
 
 class JobRepository(ABC, Generic[TSummary, TDetail]):
-    """Lưu trạng thái một loại job chạy nền.
+    """Persist the state of one type of background job.
 
-    Ba loại job (enrich, matching, message) có cùng vòng đời — tạo, cập nhật
-    tiến độ, đọc lại, liệt kê theo user — nên chúng dùng chung interface này và
-    chỉ khác nhau ở kiểu dữ liệu. Các lớp con bên dưới tồn tại để mỗi loại có
-    một tên gọi riêng ở chỗ khai báo phụ thuộc.
+    The three job types (enrichment, matching, messaging) share a lifecycle —
+    create, update progress, retrieve, and list by user — so they use this
+    interface and differ only in data type. The subclasses provide distinct names
+    for dependency declarations.
     """
 
     @abstractmethod
     def create_job(self, job: TDetail) -> None:
-        """Tạo bản ghi job mới."""
+        """Create a job record."""
 
     @abstractmethod
     def update_job(self, job: TDetail) -> None:
-        """Ghi đè trạng thái job (dùng để cập nhật tiến độ)."""
+        """Replace a job's state (used to update progress)."""
+
+    @abstractmethod
+    def fail_active_jobs(self, reason: str, finished_at: str) -> int:
+        """Close pending/running jobs after restart while preserving saved results."""
 
     @abstractmethod
     def get_job(self, username: str, job_id: str) -> TDetail | None:
-        """Chi tiết 1 job. None nếu không tồn tại hoặc không thuộc user này."""
+        """Get job details. Return None if missing or not owned by this user."""
 
     @abstractmethod
     def list_jobs(self, username: str, limit: int = 20) -> list[TSummary]:
-        """Các job gần nhất của user, mới nhất trước."""
+        """List the user's recent jobs, newest first."""
 
+    @abstractmethod
+    def list_for_run(
+        self, username: str, run_id: str, include_unlinked: bool = False
+    ) -> list[TDetail]:
+        """All saved jobs for an owned search, newest first; optionally include legacy jobs."""
+
+    @abstractmethod
+    def delete_for_run(self, username: str, run_id: str) -> None:
+        """Delete all jobs for a search run; only matching run_id values, not legacy jobs (run_id null)."""
 
 class EnrichJobRepository(JobRepository[EnrichJobSummary, EnrichJobDetail]):
-    """Job enrich: đọc website công ty để bổ sung thông tin."""
+    """Enrichment job: read company websites to collect additional information."""
 
 
 class MatchJobRepository(JobRepository[MatchJobSummary, MatchJobDetail]):
-    """Job matching: chấm và xếp hạng công ty theo catalog dịch vụ."""
+    """Matching job: score and rank companies against the service catalog."""
 
 
 class MessageJobRepository(JobRepository[MessageJobSummary, MessageJobDetail]):
-    """Job message: viết message gửi cho từng contact."""
+    """Messaging job: write a message for each contact."""

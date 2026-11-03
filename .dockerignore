@@ -1,4 +1,4 @@
-# Build context của backend. Frontend có .dockerignore riêng vì context là ./frontend.
+# Backend build context. The frontend has its own .dockerignore because its context is ./frontend.
 .git
 .gitignore
 .venv
@@ -12,9 +12,13 @@ dist
 .pytest_cache
 .ruff_cache
 
-# Không bao giờ đưa DB hay secret vào ảnh.
+# Never include databases or secrets in the image.
 *.db
 .env
+.env.*
+9router
+tmp
+logs
 
 frontend
 tests

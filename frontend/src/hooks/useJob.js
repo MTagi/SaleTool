@@ -3,10 +3,10 @@ import { api } from "../api/client";
 
 const POLL_INTERVAL_MS = 2000;
 
-// Trạng thái backend trả về; chỉ hai giá trị này là "chưa xong".
+// Statuses returned by the backend; only these two mean "not finished".
 const ACTIVE_STATUSES = ["pending", "running"];
 
-/** Job còn đang chạy? Dùng chung cho cả vòng poll lẫn nút submit của trang. */
+/** Is the job still running? Shared by polling and each page's submit button. */
 export function isJobRunning(job) {
   return Boolean(job) && ACTIVE_STATUSES.includes(job.status);
 }
@@ -18,8 +18,8 @@ export function isJobRunning(job) {
  * `fetchJob` takes the job id and resolves to the job payload — enrichment and
  * matching jobs share the same status/progress shape, so they share this hook.
  *
- * Trả về `running` sẵn để trang không phải tự so chuỗi trạng thái — ba trang đều
- * cần đúng điều kiện đó để khoá nút submit.
+ * Return `running` so pages do not need to compare status strings themselves;
+ * all three pages need this condition to disable submit.
  */
 export function useJob(jobId, fetchJob) {
   const [job, setJob] = useState(null);
@@ -27,8 +27,9 @@ export function useJob(jobId, fetchJob) {
   const timerRef = useRef(null);
 
   useEffect(() => {
+    setJob(null);
+    setError(null);
     if (!jobId) {
-      setJob(null);
       return undefined;
     }
 

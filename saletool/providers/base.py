@@ -1,11 +1,10 @@
-"""Interface chung cho các nhà cung cấp dữ liệu công ty/liên hệ.
+"""Shared interface for company/contact data providers.
 
-Lưu ý quan trọng: SaleTool KHÔNG tự động hoá trình duyệt để scrape trực tiếp
-linkedin.com (vi phạm Terms of Service và có rủi ro pháp lý/khoá tài khoản).
-Thay vào đó, mọi provider ở đây đều gọi API chính thức của các nhà cung cấp
-dữ liệu bên thứ ba đã tổng hợp/enrich dữ liệu công khai một cách hợp pháp
-(vd: Apollo.io, People Data Labs, Proxycurl...). Bạn cần tài khoản/API key
-hợp lệ của provider tương ứng.
+Important: SaleTool does NOT automate a browser to scrape linkedin.com directly
+(this violates its Terms of Service and risks legal action or account bans).
+Instead, each provider calls an official API from a third-party data provider
+that has legally aggregated/enriched public data (e.g. Apollo.io, People Data
+Labs, Proxycurl). You need a valid account/API key for the selected provider.
 """
 
 from __future__ import annotations
@@ -16,14 +15,14 @@ from saletool.models import Company, Contact, SearchCriteria
 
 
 class CompanyContactProvider(ABC):
-    """Provider phải cung cấp 2 khả năng: tìm công ty, và tìm liên hệ trong công ty đó."""
+    """A provider must support two operations: find companies and find their contacts."""
 
     name: str = "base"
 
     @abstractmethod
     def search_companies(self, criteria: SearchCriteria) -> list[Company]:
-        """Trả về danh sách công ty phù hợp với criteria (tối đa criteria.max_companies)."""
+        """Return companies matching the criteria (up to criteria.max_companies)."""
 
     @abstractmethod
     def search_contacts(self, company: Company, criteria: SearchCriteria) -> list[Contact]:
-        """Trả về danh sách liên hệ (ưu tiên cấp cao) của 1 công ty."""
+        """Return contacts for one company, prioritizing seniority."""

@@ -1,9 +1,10 @@
-import { Navigate, Route, Routes } from "react-router-dom";
-import TopBar from "./components/TopBar";
-import WorkflowNav from "./components/WorkflowNav";
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import Sidebar from "./components/Sidebar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
-import { StatusProvider, useAppStatus } from "./context/StatusContext";
+import { StatusProvider } from "./context/StatusContext";
+import { ToastProvider } from "./context/ToastContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Results from "./pages/Results";
@@ -25,7 +26,6 @@ const PROTECTED_ROUTES = [
   { path: "/catalog", element: <Catalog /> },
   { path: "/matching", element: <Matching /> },
   { path: "/messages", element: <Messages /> },
-  { path: "/settings", element: <Settings /> },
   { path: "/account", element: <Account /> },
 ];
 
@@ -45,31 +45,39 @@ export default function App() {
 
   return (
     <StatusProvider>
-      <SignedInApp />
+      <ToastProvider>
+        <SignedInApp />
+      </ToastProvider>
     </StatusProvider>
   );
 }
 
 function SignedInApp() {
-  const { status } = useAppStatus();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const settingsOpen = location.pathname === "/settings";
+  const [background, setBackground] = useState(() =>
+    settingsOpen ? { pathname: "/", search: "", hash: "" } : location
+  );
+  useEffect(() => {
+    if (!settingsOpen) setBackground(location);
+  }, [location, settingsOpen]);
 
   return (
     <>
-      {/* Both bars scroll away together or not at all, so they share one sticky
-          wrapper. Sticking them separately would mean hardcoding the top bar's
-          height as the workflow strip's offset — and that height changes when
-          the bar wraps on narrow screens. */}
-      <div className="appbar">
-        <TopBar />
-        <WorkflowNav status={status} />
-      </div>
-      <Routes>
+      <Sidebar />
+      <div className="workspace-content">
+      <div hidden={settingsOpen}>
+      <Routes location={settingsOpen ? background : location}>
         <Route path="/login" element={<Navigate to="/" replace />} />
         {PROTECTED_ROUTES.map(({ path, element }) => (
           <Route key={path} path={path} element={<ProtectedRoute>{element}</ProtectedRoute>} />
         ))}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </div>
+      {settingsOpen && <Settings onClose={() => navigate(background, { replace: true })} />}
+      </div>
     </>
   );
 }

@@ -1,0 +1,116 @@
+[
+  {
+    "name": "AI VMS — Restricted-area monitoring",
+    "category": "Video analytics / Physical security",
+    "description": "Analyze video to detect people entering or leaving restricted areas in factories and warehouses. Configure monitoring zones, schedules and alert rules, and retain events for operations teams to review. Camera angles, image quality and connectivity must be assessed before deployment. Suitable for businesses with multiple monitored areas or teams that currently watch camera feeds manually.",
+    "value_proposition": "Help operations teams focus on events that need attention instead of continuously watching multiple screens. Support event review and consistent response procedures. Start with a pilot in one area to measure detection quality before expanding.",
+    "target_industries": [
+      "Manufacturing",
+      "Warehousing",
+      "Logistics and Supply Chain"
+    ],
+    "target_company_size": "50-1,000 employees; operates factories or warehouses with camera infrastructure to be assessed",
+    "keywords": [
+      "restricted area",
+      "intrusion detection",
+      "video analytics",
+      "factory",
+      "warehouse",
+      "CCTV",
+      "physical security"
+    ],
+    "active": true
+  },
+  {
+    "name": "AI Safety — PPE monitoring",
+    "category": "Video analytics / Workplace safety",
+    "description": "Analyze images at selected locations to flag potential cases of missing safety helmets or reflective vests. Group events by area and time for safety officers to review. Supported protective equipment must be validated using on-site test data; the solution does not replace the company's safety inspection procedures.",
+    "value_proposition": "Help safety officers identify where and when to inspect, reducing manual video review. Provide event records to support training and improve compliance with protective equipment requirements.",
+    "target_industries": [
+      "Manufacturing",
+      "Construction",
+      "Warehousing"
+    ],
+    "target_company_size": "100-2,000 employees; has areas requiring protective equipment and a dedicated safety team",
+    "keywords": [
+      "PPE",
+      "helmet",
+      "safety vest",
+      "workplace safety",
+      "EHS",
+      "construction site",
+      "manufacturing plant"
+    ],
+    "active": true
+  },
+  {
+    "name": "ERP — Manufacturing operations",
+    "category": "Enterprise software / ERP",
+    "description": "Assess and implement connected order, purchasing, inventory and production planning workflows for midsize manufacturers. Standardize material master data and approval processes, and manage bills of materials and production orders within an agreed scope. Integrate accounting software or existing systems after assessing data exchange capabilities. Suitable for businesses relying on multiple Excel files or disconnected applications.",
+    "value_proposition": "Provide a consistent source of data across sales, warehouse and production teams. Reduce duplicate data entry and improve order status visibility. Roll out modules in phases so users can adapt and validate results before expanding.",
+    "target_industries": [
+      "Manufacturing",
+      "Industrial Machinery",
+      "Food Production",
+      "Packaging"
+    ],
+    "target_company_size": "50-500 employees; needs connected purchasing, warehouse and production workflows",
+    "keywords": [
+      "ERP",
+      "MRP",
+      "production planning",
+      "bill of materials",
+      "inventory",
+      "procurement",
+      "Excel",
+      "manufacturing"
+    ],
+    "active": true
+  },
+  {
+    "name": "Data Platform — Operations dashboard",
+    "category": "Data engineering / Business intelligence",
+    "description": "Build data pipelines that consolidate ERP, CRM, warehouse software and operational files into a central data warehouse. Standardize metrics and design dashboards for revenue, inventory, order progress or productivity based on available business data. Establish data quality checks and access controls. Suitable for teams that manually combine reports from multiple sources without consistent metric definitions.",
+    "value_proposition": "Reduce manual preparation of recurring reports, align metric calculations across departments and make data sources traceable. Begin with priority reports and measure reporting effort and data quality before and after implementation.",
+    "target_industries": [
+      "Manufacturing",
+      "Logistics and Supply Chain",
+      "Wholesale",
+      "Retail"
+    ],
+    "target_company_size": "100-2,000 employees; uses multiple systems and needs reporting across departments",
+    "keywords": [
+      "data warehouse",
+      "ETL",
+      "business intelligence",
+      "dashboard",
+      "data quality",
+      "reporting",
+      "ERP integration"
+    ],
+    "active": true
+  },
+  {
+    "name": "WMS — Warehouse traceability",
+    "category": "Supply chain software / Warehouse management",
+    "description": "Manage receiving, dispatch, storage locations and stock counts using barcodes or QR codes aligned with warehouse workflows. Track batches and movement history, and support inventory reconciliation with existing systems. Assess scanners, network connectivity and traceability requirements before deployment. Suitable for warehouses with many SKUs, multiple storage locations or frequent manual stock reconciliation.",
+    "value_proposition": "Support product traceability and consistent receiving and dispatch procedures, reducing reliance on individual staff records. Establish a basis for measuring inventory accuracy and order processing time during a pilot.",
+    "target_industries": [
+      "Warehousing",
+      "Logistics and Supply Chain",
+      "Wholesale",
+      "Manufacturing"
+    ],
+    "target_company_size": "50-1,000 employees; operates warehouses with multiple storage locations or batch tracking requirements",
+    "keywords": [
+      "WMS",
+      "barcode",
+      "QR code",
+      "stock accuracy",
+      "batch tracking",
+      "warehouse",
+      "inventory traceability"
+    ],
+    "active": true
+  }
+]

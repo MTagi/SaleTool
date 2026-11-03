@@ -1,11 +1,11 @@
 # SaleTool / ABIM Sales Assistant.
 #
-# Mặc định: backend (FastAPI) + frontend (React build sẵn, phục vụ qua nginx),
-# dữ liệu trong SQLite trên một volume. Mongo và SearXNG là profile tuỳ chọn.
+# Default: backend (FastAPI) + prebuilt React frontend (served by nginx),
+# with SQLite data on a volume. Mongo is an optional profile.
 #
-# Lưu ý: bản thân ứng dụng KHÔNG đọc file .env. Đọc .env ở đây là việc của
-# Docker Compose — nó thay ${...} bên dưới rồi truyền vào container thành biến
-# môi trường thật.
+# Note: the application itself does NOT read .env. Docker Compose reads it,
+# substitutes ${...} below, and passes the values into containers as environment
+# variables.
 name: saletool
 
 services:
@@ -13,33 +13,33 @@ services:
     build:
       context: .
       args:
-        # true = cài thêm Playwright + chromium cho tầng dự phòng render JS.
+        # true = install Playwright + Chromium for the JavaScript-rendering fallback.
         INSTALL_BROWSER: ${SALETOOL_INSTALL_BROWSER:-false}
     environment:
-      # Bắt buộc, và phải CỐ ĐỊNH giữa các lần restart: khoá mã hoá API key lưu
-      # trong DB được suy ra từ đây bằng HKDF, và JWT cũng ký bằng nó. Đổi khoá
-      # = mọi người phải đăng nhập lại và nhập lại API key ở trang Settings.
-      # Cú pháp `:?` khiến compose dừng ngay với thông báo rõ ràng thay vì để
-      # server tự sinh khoá tạm rồi hỏng ngầm.
-      SALETOOL_SECRET_KEY: "${SALETOOL_SECRET_KEY:?chua dat trong .env - sinh khoa bang python -c 'import secrets; print(secrets.token_hex(32))'}"
+      # Required and must remain FIXED between restarts: the database encryption
+      # key is derived from this value using HKDF, and JWTs are signed with it.
+      # Changing it requires everyone to log in again and re-enter API keys in
+      # Settings. The `:?` syntax makes Compose stop with a clear message instead
+      # of silently using a temporary server-generated key.
+      SALETOOL_SECRET_KEY: "${SALETOOL_SECRET_KEY:?set SALETOOL_SECRET_KEY in .env before starting Docker Compose}"
 
       SALETOOL_DB_BACKEND: ${SALETOOL_DB_BACKEND:-sqlite}
       SALETOOL_DB_PATH: /data/saletool.db
       SALETOOL_MONGO_URI: ${SALETOOL_MONGO_URI:-mongodb://mongo:27017}
       SALETOOL_MONGO_DB: ${SALETOOL_MONGO_DB:-saletool}
 
-      # UI và API cùng origin qua nginx nên CORS không cần tới. Danh sách này
-      # chỉ phục vụ trường hợp chạy `npm run dev` ở máy host, trỏ vào API này.
+      # UI and API share an origin through nginx, so CORS is unnecessary. This
+      # list is only for `npm run dev` on the host, pointing to this API.
       SALETOOL_CORS_ORIGINS: ${SALETOOL_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
 
-      # Chỉ CLI cần. Web UI nhận Apollo key theo từng request trong form.
+      # CLI only. The web UI receives an Apollo key per request through the form.
       APOLLO_API_KEY: ${APOLLO_API_KEY:-}
     volumes:
       - saletool-data:/data
     ports:
-      # Chỉ mở ra loopback: người dùng đi qua frontend, cổng này để gọi curl và
-      # xem /docs lúc gỡ lỗi. Bỏ dòng này nếu không cần.
-      - "127.0.0.1:8000:8000"
+      # Expose on loopback only: users access the app through the frontend, while
+      # this port is for curl and /docs during debugging. Remove if unnecessary.
+      - "127.0.0.1:${SALETOOL_API_PORT:-8000}:8000"
     restart: unless-stopped
 
   frontend:
@@ -49,37 +49,26 @@ services:
       - "${SALETOOL_WEB_PORT:-8080}:80"
     depends_on:
       backend:
-        # Chờ healthcheck: nginx phân giải "backend" lúc khởi động, backend chưa
-        # có là nginx chết ngay chứ không thử lại.
+        # Wait for the healthcheck: nginx resolves "backend" at startup and exits
+        # if it is unavailable instead of retrying.
         condition: service_healthy
     restart: unless-stopped
 
-  # --- Tuỳ chọn: chạy với `--profile mongo` -------------------------------
-  # Kèm theo phải đặt SALETOOL_DB_BACKEND=mongo. Không đưa mongo vào depends_on
-  # của backend: làm vậy thì profile này thành bắt buộc, phá luôn đường SQLite
-  # mặc định. pymongo kết nối lười nên backend khởi động trước cũng không sao.
+  # --- Optional: run with `--profile mongo` -------------------------------
+  # Also set SALETOOL_DB_BACKEND=mongo. Do not add Mongo to the backend's
+  # depends_on; that would make this profile mandatory and break the default
+  # SQLite path. pymongo connects lazily, so the backend may start first.
   mongo:
     image: mongo:7
     profiles: ["mongo"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 12
     volumes:
       - mongo-data:/data/db
-    restart: unless-stopped
-
-  # --- Tuỳ chọn: chạy với `--profile searxng` ----------------------------
-  # Web search miễn phí cho tầng 2 của enrichment. Bật xong vào trang Settings:
-  # Web search = searxng, instance URL = http://searxng:8080 (tên service trong
-  # mạng compose, KHÔNG phải 127.0.0.1).
-  searxng:
-    image: searxng/searxng:latest
-    profiles: ["searxng"]
-    volumes:
-      # Không gắn :ro — entrypoint của ảnh chown /etc/searxng lúc khởi động và
-      # sẽ spam "Read-only file system" vào log (chạy vẫn được nhưng khó đọc log).
-      - ./docker/searxng:/etc/searxng
-    environment:
-      SEARXNG_BASE_URL: http://localhost:${SALETOOL_SEARXNG_PORT:-8888}/
-    ports:
-      - "127.0.0.1:${SALETOOL_SEARXNG_PORT:-8888}:8080"
     restart: unless-stopped
 
 volumes:

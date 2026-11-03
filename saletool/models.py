@@ -1,13 +1,14 @@
-"""Data models dùng chung cho toàn bộ pipeline."""
+"""Data models shared across the pipeline."""
 
 from __future__ import annotations
 
+import hashlib
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-# Các mức seniority thường gặp (khớp với cách Apollo.io/PDL phân loại),
-# dùng để lọc "các cấp cao" của công ty.
+# Common seniority levels (matching Apollo.io/PDL classifications), used to filter
+# for senior contacts at a company.
 SENIORITY_LEVELS = [
     "owner",
     "founder",
@@ -26,39 +27,51 @@ DEFAULT_SENIOR_LEVELS = ["owner", "founder", "c_suite", "partner", "vp", "head",
 
 
 class SearchCriteria(BaseModel):
-    """Input format mô tả mục tiêu tìm kiếm công ty.
+    """Input format describing company search criteria.
 
-    Đây chính là "1 input format" mà người dùng cung cấp để tool tìm ra
-    danh sách công ty phù hợp trên LinkedIn.
+    This is the input users provide for the tool to find matching companies on LinkedIn.
     """
 
-    industries: list[str] = Field(default_factory=list, description="Ngành nghề, vd: 'Software', 'Retail'")
-    keywords: list[str] = Field(default_factory=list, description="Từ khoá mô tả công ty/lĩnh vực kinh doanh")
-    locations: list[str] = Field(default_factory=list, description="Vị trí địa lý, vd: 'Vietnam', 'Ho Chi Minh City'")
+    industries: list[str] = Field(default_factory=list, description="Industries, e.g. 'Software', 'Retail'")
+    keywords: list[str] = Field(default_factory=list, description="Keywords describing the company or its business")
+    locations: list[str] = Field(default_factory=list, description="Locations, e.g. 'Vietnam', 'Ho Chi Minh City'")
     company_size_min: int | None = Field(default=None, ge=0)
     company_size_max: int | None = Field(default=None, ge=0)
+    expanded_target_titles: list[str] = Field(default_factory=list)
+    title_expansion_status: str | None = None
     target_titles: list[str] = Field(
-        default_factory=list, description="Chức danh cụ thể muốn tìm, vd: 'CEO', 'Head of Sales'"
+        default_factory=list, description="Specific job titles to find, e.g. 'CEO', 'Head of Sales'"
     )
     seniority_levels: list[str] = Field(
         default_factory=lambda: list(DEFAULT_SENIOR_LEVELS),
-        description="Các cấp bậc liên hệ muốn lấy ra (mặc định: các cấp quản lý cao trở lên)",
+        description="Contact seniority levels to retrieve (defaults to senior management and above)",
     )
-    max_companies: int = Field(default=20, gt=0, description="Số lượng công ty tối đa cần tìm")
-    max_contacts_per_company: int = Field(default=5, gt=0, description="Số liên hệ tối đa lấy ra mỗi công ty")
+    max_companies: int = Field(default=20, gt=0, description="Maximum number of companies to find")
+    max_contacts_per_company: int = Field(default=5, gt=0, description="Maximum contacts to retrieve per company")
 
 
 class Company(BaseModel):
+    id: str | None = None
     name: str
+    description: str | None = None
+    founded_year: int | None = None
+    phone: str | None = None
+    address: str | None = None
+    annual_revenue: str | None = None
+    total_funding: str | None = None
+    technologies: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
     linkedin_url: str | None = None
     domain: str | None = None
     industry: str | None = None
     location: str | None = None
     employee_count: int | None = None
-    provider_id: str | None = Field(default=None, description="ID nội bộ của nhà cung cấp dữ liệu")
+    provider_id: str | None = Field(default=None, description="Internal data provider ID")
 
 
 class Contact(BaseModel):
+    id: str | None = None
+    provider_id: str | None = None
     full_name: str
     title: str | None = None
     seniority: str | None = None
@@ -68,19 +81,32 @@ class Contact(BaseModel):
 
 
 class CompanyResult(BaseModel):
-    """Kết quả cuối cùng: 1 công ty phù hợp kèm danh sách liên hệ cấp cao tìm được."""
+    """Final result: one matching company with its senior contacts."""
 
     company: Company
     contacts: list[Contact] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def assign_snapshot_ids(self) -> CompanyResult:
+        """Generate a stable ID for legacy data without an ID in search history."""
+        if not self.company.id:
+            fingerprint = hashlib.sha256(
+                self.company.model_dump_json(exclude={"id"}).encode("utf-8")
+            ).hexdigest()
+            self.company.id = self.company.provider_id or f"company:{fingerprint}"
+        for index, contact in enumerate(self.contacts):
+            if not contact.id:
+                contact.id = contact.provider_id or f"{self.company.id}:contact:{index}"
+        return self
+
 
 class SearchRunSummary(BaseModel):
-    """1 dòng lịch sử tìm kiếm — đủ thông tin để hiển thị danh sách, chưa kèm
-    kết quả đầy đủ (xem SearchRunDetail)."""
+    """One search history row: enough to display the list, without full results
+    (see SearchRunDetail)."""
 
-    id: str = Field(description="UUID, dùng để tra lại chi tiết/tải file")
+    id: str = Field(description="UUID used to retrieve details or download a file")
     username: str
-    created_at: str = Field(description="ISO 8601 UTC, vd: 2026-08-13T10:00:00+00:00")
+    created_at: str = Field(description="ISO 8601 UTC, e.g. 2026-08-13T10:00:00+00:00")
     provider: str
     criteria: SearchCriteria
     total_companies: int
@@ -88,54 +114,76 @@ class SearchRunSummary(BaseModel):
 
 
 class SearchRunDetail(SearchRunSummary):
-    """1 lần tìm kiếm kèm đầy đủ kết quả — dùng khi xem lại 1 lần chạy trong lịch sử."""
+    """One search run with full results, used when viewing a run in history."""
 
     results: list[CompanyResult] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# Cấu hình (trang Settings)
+# Configuration (Settings page)
 # ---------------------------------------------------------------------------
 
 LLM_PROVIDERS = ["openrouter", "openai_compatible"]
 
-# Nguồn dữ liệu công ty/liên hệ cho bước Search (bước 1). Hiện chỉ có Apollo,
-# nhưng vẫn để dạng danh sách: `CompanyContactProvider` là điểm mở rộng có sẵn
-# nên thêm nhà cung cấp sau này chỉ là thêm phần tử ở đây, không phải sửa form
-# hay route. Frontend đọc danh sách này để dựng dropdown.
+# Company/contact data sources for Search (step 1). Apollo is currently the only
+# option, but this remains a list: `CompanyContactProvider` already provides the
+# extension point, so adding a provider later only requires another entry here,
+# not changes to the form or route. The frontend reads this list for its dropdown.
 DATA_PROVIDERS = ["apollo"]
 
-# Nhà cung cấp nào bắt buộc có API key. Tách riêng khỏi DATA_PROVIDERS vì có thể
-# sau này thêm nguồn không cần key (vd: import file thủ công).
+# Providers that require an API key. Kept separate from DATA_PROVIDERS because
+# a future source might not need a key (e.g. manual file import).
 DATA_PROVIDERS_REQUIRING_KEY = ["apollo"]
 
-# "none" = không dùng web search, chỉ đọc website của chính công ty.
-# Thứ tự này là thứ tự hiện trên dropdown, và được xếp theo mức đáng chọn:
-# hai cái có free tier hàng tháng thật lên trước, brave xuống cuối vì đã bỏ
-# free tier và không có trần chi tiêu (chi tiết ở enrichment/search/providers.py).
-SEARCH_PROVIDERS = ["none", "tavily", "exa", "searxng", "serper", "brave"]
+APOLLO_SEARCH_FIELDS = [
+    "industries",
+    "keywords",
+    "locations",
+    "company_size",
+    "target_titles",
+    "seniority_levels",
+]
 
-# Provider nào cần API key, provider nào không — frontend dùng để hiện đúng ô nhập.
+# "none" = do not use web search; only read the company's own website.
+# This is also the dropdown order, arranged by attractiveness: providers with
+# actual monthly free tiers come first, and Brave is last because it removed its
+# free tier and has no spending cap (see enrichment/search/providers.py).
+SEARCH_PROVIDERS = ["none", "tavily", "exa", "codex", "serper", "brave"]
+
+# Which providers need an API key; the frontend uses this to show the right field.
+# `codex` is excluded because a valid setup does not need a key: 9Router can run
+# on the same host as the backend. With Docker Compose a key is required (see
+# docs/docker.md), but requiring it here would incorrectly block the host setup.
 SEARCH_PROVIDERS_REQUIRING_KEY = ["tavily", "exa", "serper", "brave"]
 
 MASKED_SECRET = "__SALETOOL_UNCHANGED__"
-"""Giá trị frontend gửi lại khi người dùng KHÔNG sửa API key.
+"""Value the frontend sends back when the user has NOT changed an API key.
 
-Backend không bao giờ trả key thật về client; nó trả về bản mask để hiển thị.
-Khi lưu, nếu nhận lại đúng sentinel này thì giữ nguyên key cũ."""
+The backend never returns the real key to the client; it returns a masked value
+for display. On save, if this sentinel is received, keep the existing key."""
 
 
 class DataSourceSettings(BaseModel):
-    """Nguồn dữ liệu cho bước Search.
+    """Data source for the Search step.
 
-    API key nằm ở đây (Settings) chứ không nằm trong form tìm kiếm: nó là cấu
-    hình một lần của cả đội, không phải thứ gõ lại mỗi lần chạy. Nhờ vậy key
-    cũng được mã hoá trước khi lưu như mọi key khác (xem saletool/crypto.py),
-    thay vì đi qua form ở dạng thô mỗi lượt.
+    The API key is stored here (Settings), not in the search form: it is a
+    one-time team setting, not something entered for every run. It is encrypted
+    before storage like other keys (see saletool/crypto.py), instead of passing
+    through the form in plain text each time.
     """
 
     provider: str = "apollo"
     api_key: str | None = None
+    enabled_search_fields: list[
+        Literal[
+            "industries",
+            "keywords",
+            "locations",
+            "company_size",
+            "target_titles",
+            "seniority_levels",
+        ]
+    ] = Field(default_factory=lambda: list(APOLLO_SEARCH_FIELDS))
 
 
 class LLMSettings(BaseModel):
@@ -143,55 +191,70 @@ class LLMSettings(BaseModel):
     provider: str = "openrouter"
     api_key: str | None = None
     base_url: str = "https://openrouter.ai/api/v1"
-    model: str = "google/gemini-2.0-flash-001"
+    # Checked 2026-09-04: OpenRouter removed `google/gemini-2.0-flash-001`, which
+    # now returns 404 "No endpoints found" and breaks new installations as soon
+    # as they enable the LLM. The model below was tested with strict
+    # `response_format` json_schema (required by llm_api.py; not every model supports it).
+    model: str = "google/gemini-3.1-flash-lite"
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_output_tokens: int = Field(default=2048, gt=0)
+    context_window_tokens: int = Field(default=32768, ge=2048)
 
 
 class SearchSettings(BaseModel):
     provider: str = "none"
     api_key: str | None = None
-    searxng_url: str | None = Field(
-        default=None, description="URL instance SearXNG tự host, vd: http://localhost:8080"
+    # The `codex` provider uses these two fields. If left blank,
+    # CodexSearchProvider uses defaults (local 9Router + gpt-5.4), so selecting
+    # `codex` and saving is enough to get started.
+    base_url: str | None = Field(
+        default=None, description="Responses API endpoint, e.g. http://9router:20128/v1"
     )
+    model: str | None = Field(default=None, description="Model for web search, e.g. cx/gpt-5.4")
     max_results: int = Field(default=5, gt=0, le=50)
 
 
 class EnrichmentSettings(BaseModel):
-    """Bật/tắt từng tầng của pipeline enrich.
+    """Enable or disable each stage of the enrichment pipeline.
 
-    Thứ tự chạy: structured data (rẻ + chính xác nhất) -> website công ty ->
-    web search -> LLM (chỉ cho phần còn thiếu).
+    Execution order: structured data (cheapest and most accurate) -> company
+    website -> web search -> LLM (only for missing fields).
     """
 
     use_structured_data: bool = Field(
-        default=True, description="Tầng 0: JSON-LD schema.org, thẻ meta, regex — không tốn LLM"
+        default=True, description="Stage 0: JSON-LD schema.org, meta tags, regex — no LLM cost"
     )
-    use_company_website: bool = Field(default=True, description="Đọc sitemap + crawl nông website công ty")
-    use_web_search: bool = Field(default=False, description="Tìm các trang bên ngoài nói về công ty")
-    use_llm: bool = Field(default=True, description="Dùng LLM trích xuất phần không parse được bằng code")
+    use_company_website: bool = Field(default=True, description="Read the sitemap and shallow-crawl the company website")
+    use_web_search: bool = Field(default=False, description="Find external pages that mention the company")
+    # Start with a valid configuration before any provider keys are supplied.
+    use_llm: bool = Field(default=False, description="Use an LLM to extract information that code could not parse")
     use_browser_fallback: bool = Field(
-        default=True, description="Dùng Playwright khi trang render bằng JS (chậm hơn nhiều)"
+        default=True, description="Use Playwright for JavaScript-rendered pages (much slower)"
     )
 
     max_pages_per_company: int = Field(default=8, gt=0, le=50)
+    web_search_reserved_pages: int = Field(
+        default=4, ge=1, le=50,
+        description="Pages reserved for external web search within the total per-company limit",
+    )
     request_timeout_seconds: float = Field(default=15.0, gt=0)
     request_delay_seconds: float = Field(
-        default=1.0, ge=0, description="Nghỉ giữa 2 request tới cùng 1 domain — giữ mức lịch sự"
+        default=1.0, ge=0, description="Delay between requests to the same domain — crawl politely"
     )
     respect_robots_txt: bool = True
     user_agent: str = "SaleToolBot/1.0 (+contact: set-your-email@example.com)"
 
     auto_enrich_on_search: bool = Field(
-        default=False, description="Tự động enrich toàn bộ công ty ngay sau khi search xong"
+        default=False, description="Automatically enrich all companies after search completes"
     )
 
 
 class SenderProfile(BaseModel):
-    """Bạn là ai — dùng khi sinh message gửi cho contact.
+    """Who you are, used when generating messages to contacts.
 
-    Không có phần này thì LLM buộc phải bịa ra người gửi, và message sinh ra
-    không dùng được. Vì vậy bước sinh message yêu cầu tối thiểu `full_name` và
+    Without this information, the LLM would have to invent a sender and the
+    generated message would be unusable. Message generation therefore requires
+    at least `full_name` and
     `company_name`.
     """
 
@@ -199,12 +262,12 @@ class SenderProfile(BaseModel):
     title: str = ""
     company_name: str = ""
     company_description: str = Field(
-        default="", description="Công ty bạn làm gì — 1-2 câu, LLM dùng để viết phần giới thiệu"
+        default="", description="What your company does — 1–2 sentences used by the LLM for an introduction"
     )
     email: str = ""
     phone: str = ""
-    calendar_link: str = Field(default="", description="Link đặt lịch, vd Calendly — dùng cho CTA")
-    signature: str = Field(default="", description="Chữ ký chèn nguyên văn cuối email")
+    calendar_link: str = Field(default="", description="Scheduling link, e.g. Calendly — used for the CTA")
+    signature: str = Field(default="", description="Signature inserted verbatim at the end of emails")
 
     def is_usable(self) -> bool:
         return bool(self.full_name.strip() and self.company_name.strip())
@@ -221,15 +284,15 @@ class AppSettings(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Kết quả enrich
+# Enrichment results
 # ---------------------------------------------------------------------------
 
 
 class EnrichmentSource(BaseModel):
-    """Provenance — mỗi mẩu dữ liệu đến từ đâu.
+    """Provenance — where each piece of data came from.
 
-    Đây là yêu cầu tuân thủ, không phải tính năng phụ: khi bị hỏi "dữ liệu này ở
-    đâu ra?" phải trả lời được cho từng bản ghi.
+    This is a compliance requirement, not an optional feature: if asked "where
+    did this data come from?", we must be able to answer for every record.
     """
 
     url: str
@@ -250,7 +313,13 @@ class Executive(BaseModel):
 
 
 class CompanyEnrichment(BaseModel):
-    """Thông tin thu được sau khi enrich 1 công ty."""
+    raw_markdown: str | None = None
+    summary_markdown: str | None = None
+    report_status: str | None = None
+    report_error: str | None = None
+    search_queries: list[str] = Field(default_factory=list)
+    query_planning_status: str | None = None
+    """Information collected after enriching one company."""
 
     company_name: str
     domain: str | None = None
@@ -268,7 +337,7 @@ class CompanyEnrichment(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     executives: list[Executive] = Field(default_factory=list)
 
-    tax_code: str | None = Field(default=None, description="Mã số thuế / mã số doanh nghiệp")
+    tax_code: str | None = Field(default=None, description="Tax ID / business registration number")
 
     sources: list[EnrichmentSource] = Field(default_factory=list)
     pages_fetched: int = 0
@@ -276,7 +345,7 @@ class CompanyEnrichment(BaseModel):
     enriched_at: str | None = None
 
     def is_empty(self) -> bool:
-        """True khi không thu được thông tin gì đáng kể — dùng để hiện nút Enrich lại."""
+        """True when no meaningful information was found; used to show the Enrich again button."""
         return not any(
             [
                 self.description,
@@ -291,35 +360,36 @@ class CompanyEnrichment(BaseModel):
 
 
 class EnrichTarget(BaseModel):
-    """1 công ty cần enrich. Ít nhất phải có tên hoặc domain."""
+    company_profile: Company | None = None
+    """A company to enrich. At least a name or domain is required."""
 
     company_name: str
     domain: str | None = None
     extra_context: str | None = Field(
-        default=None, description="Gợi ý thêm cho LLM/search, vd: 'fintech ở TP.HCM'"
+        default=None, description="Additional hint for the LLM/search, e.g. 'fintech in Ho Chi Minh City'"
     )
 
 
 # ---------------------------------------------------------------------------
-# Job nền: phần trạng thái chung của cả ba loại (enrich, matching, message)
+# Background jobs: shared status for all three types (enrichment, matching, messaging).
 # ---------------------------------------------------------------------------
 
-#: Vòng đời của một job nền. "pending" và "running" là hai trạng thái *chưa
-#: xong* — client còn poll, và job đang ở đó lúc server khởi động lại sẽ bị
-#: đánh dấu failed (xem `api/jobs.py`).
+#: Lifecycle states for a background job. "pending" and "running" are *unfinished*
+#: states; the client keeps polling, and jobs in either state on server restart
+#: are marked failed (see `api/jobs.py`).
 JobStatus = Literal["pending", "running", "completed", "failed"]
 
-#: Những trạng thái mà job còn được chạy tiếp. Đặt tên vì cả ba runner đều kiểm
-#: đúng điều kiện này trước khi nhận job.
+#: States that allow a job to continue. Named because all three runners check
+#: this condition before claiming a job.
 ACTIVE_JOB_STATUSES: tuple[JobStatus, ...] = ("pending", "running")
 
 
 class BackgroundJobSummary(BaseModel):
-    """Phần chung của mọi job nền — danh tính, vòng đời, tiến độ.
+    """Shared fields for all background jobs: identity, lifecycle, and progress.
 
-    Ba loại job khác nhau ở dữ liệu vào/ra, còn phần này thì giống hệt, và
-    frontend dựa đúng vào chỗ giống hệt đó để dùng chung một hook poll cho cả
-    ba. Gom vào một model để chúng không lệch nhau khi thêm trường.
+    The three job types differ in their inputs and outputs, but share these
+    fields. The frontend relies on this common shape to use one polling hook for
+    all three. Keep them in one model so they stay aligned when fields are added.
     """
 
     id: str
@@ -332,13 +402,15 @@ class BackgroundJobSummary(BaseModel):
     completed: int = 0
     failed: int = 0
     current_target: str | None = Field(
-        default=None, description="Đang xử lý cái gì — để UI hiện tiến độ có nghĩa"
+        default=None, description="Current item being processed — used to display meaningful progress"
     )
-    error: str | None = Field(default=None, description="Lỗi gần nhất, không phải lỗi duy nhất")
+    error: str | None = Field(default=None, description="Most recent error, not the only error")
 
 
 class EnrichJobSummary(BackgroundJobSummary):
-    """Job enrich: đọc website của một danh sách công ty."""
+    """Enrichment job: read websites for a list of companies."""
+
+    run_id: str | None = None
 
 
 class EnrichJobDetail(EnrichJobSummary):
@@ -347,41 +419,41 @@ class EnrichJobDetail(EnrichJobSummary):
 
 
 # ---------------------------------------------------------------------------
-# Catalog dịch vụ của chính công ty bạn
+# Your company's service catalog
 # ---------------------------------------------------------------------------
 
 
 class ServiceInput(BaseModel):
-    """Phần người dùng nhập/sửa cho 1 dịch vụ trong catalog.
+    """Fields users enter or edit for one catalog service.
 
-    Tách khỏi `Service` để client không thể tự đặt id/created_at.
+    Separate from `Service` so clients cannot set id/created_at.
 
-    Các trường mô tả ở đây chính là thứ LLM đọc khi chấm độ phù hợp. Mô tả càng
-    cụ thể (bài toán giải quyết, khách hàng điển hình) thì xếp hạng càng sát —
-    chỉ ghi mỗi tên dịch vụ thì LLM gần như không có gì để bám vào.
+    These descriptions are what the LLM reads when scoring fit. More specific
+    details (problems solved, typical customers) produce better rankings; a
+    service name alone gives the LLM little to work with.
     """
 
-    name: str = Field(min_length=1, description="Tên dịch vụ, vd: 'Triển khai ERP'")
-    category: str | None = Field(default=None, description="Nhóm dịch vụ, vd: 'Consulting'")
-    description: str = Field(default="", description="Dịch vụ làm gì, giải quyết vấn đề gì")
+    name: str = Field(min_length=1, description="Service name, e.g. 'ERP implementation'")
+    category: str | None = Field(default=None, description="Service category, e.g. 'Consulting'")
+    description: str = Field(default="", description="What the service does and what problem it solves")
     value_proposition: str | None = Field(
-        default=None, description="Vì sao khách chọn bạn thay vì đối thủ"
+        default=None, description="Why customers choose you over competitors"
     )
     target_industries: list[str] = Field(default_factory=list)
     target_company_size: str | None = Field(
-        default=None, description="Quy mô khách hàng phù hợp, vd: '50-500 nhân sự'"
+        default=None, description="Ideal customer size, e.g. '50–500 employees'"
     )
     keywords: list[str] = Field(
-        default_factory=list, description="Tín hiệu cho thấy công ty đang cần dịch vụ này"
+        default_factory=list, description="Signals that a company may need this service"
     )
-    active: bool = Field(default=True, description="Tắt để giữ lại trong catalog nhưng không đem đi map")
+    active: bool = Field(default=True, description="Disable to keep in the catalog without matching against it")
 
 
 class Service(ServiceInput):
-    """1 dịch vụ đã lưu trong catalog.
+    """One saved catalog service.
 
-    Catalog có phạm vi toàn hệ thống (giống Settings): cả đội bán chung một bộ
-    dịch vụ, không phải mỗi người một bản riêng.
+    The catalog is system-wide (like Settings): the team shares one service list
+    instead of maintaining individual copies.
     """
 
     id: str
@@ -391,26 +463,27 @@ class Service(ServiceInput):
 
 
 # ---------------------------------------------------------------------------
-# Mapping dịch vụ <-> công ty (LLM chấm điểm)
+# Service-to-company matching (LLM scoring)
 # ---------------------------------------------------------------------------
 
-# Điểm dưới ngưỡng này coi như không đáng theo đuổi — dùng để tô màu ở UI và
-# để lọc nhanh danh sách.
+# Scores below this threshold are not worth pursuing; used for UI coloring and
+# quick list filtering.
 MATCH_SCORE_FLOOR = 40
 
 
 class ServiceFit(BaseModel):
-    """Mức phù hợp của 1 công ty với 1 dịch vụ cụ thể."""
+    """How well one company fits a particular service."""
 
     service_id: str
     service_name: str
     score: int = Field(ge=0, le=100)
-    rationale: str = Field(default="", description="Vì sao chấm điểm này — bám vào dữ kiện có thật")
+    rationale: str = Field(default="", description="Reason for this score, grounded in observed facts")
 
 
 class CompanyMatch(BaseModel):
-    """1 công ty sau khi đã chấm với toàn bộ dịch vụ được chọn."""
+    """One company after scoring against all selected services."""
 
+    company_id: str | None = None
     company_name: str
     domain: str | None = None
     linkedin_url: str | None = None
@@ -422,31 +495,31 @@ class CompanyMatch(BaseModel):
     rank: int = 0
     best_service_id: str | None = None
     best_service_name: str | None = None
-    summary: str = Field(default="", description="1-2 câu tóm tắt vì sao nên/không nên tiếp cận")
-    signals: list[str] = Field(default_factory=list, description="Dữ kiện ủng hộ")
-    concerns: list[str] = Field(default_factory=list, description="Điểm khiến độ phù hợp giảm")
+    summary: str = Field(default="", description="1–2 sentence summary of why to pursue or avoid this company")
+    signals: list[str] = Field(default_factory=list, description="Supporting evidence")
+    concerns: list[str] = Field(default_factory=list, description="Factors that reduce fit")
 
     service_fits: list[ServiceFit] = Field(default_factory=list)
 
     used_enrichment: bool = Field(
-        default=False, description="Có dữ liệu enrich để chấm hay chỉ có thông tin từ lần search"
+        default=False, description="Whether enrichment data was available or only search results were used"
     )
-    error: str | None = Field(default=None, description="Chấm điểm thất bại thì ghi lý do ở đây")
+    error: str | None = Field(default=None, description="Reason scoring failed, if applicable")
 
 
 class MatchRequest(BaseModel):
-    """Yêu cầu map: lấy 1 lần search đã lưu + các dịch vụ được chọn."""
+    """Matching request: a saved search run and selected services."""
 
-    run_id: str = Field(description="ID của lần search trong lịch sử")
+    run_id: str = Field(description="ID of the search run in history")
     service_ids: list[str] = Field(min_length=1)
     objective: str | None = Field(
         default=None,
-        description="Tiêu chí xếp hạng thêm, vd: 'ưu tiên công ty đang mở rộng ở miền Bắc'",
+        description="Additional ranking criteria, e.g. 'prioritize companies expanding in the north'",
     )
 
 
 class MatchJobSummary(BackgroundJobSummary):
-    """Job matching: chấm một lần search đã lưu với catalog dịch vụ."""
+    """Matching job: score a saved search run against the service catalog."""
 
     run_id: str
     objective: str | None = None
@@ -455,27 +528,27 @@ class MatchJobSummary(BackgroundJobSummary):
 class MatchJobDetail(MatchJobSummary):
     services: list[Service] = Field(
         default_factory=list,
-        description="Bản chụp dịch vụ lúc chạy — sửa catalog sau đó không làm sai lệch kết quả cũ",
+        description="Service snapshot at run time — later catalog edits do not change these results",
     )
     results: list[CompanyMatch] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# Sinh message gửi contact
+# Generate messages for contacts
 # ---------------------------------------------------------------------------
 
 
 class ChannelSpec(BaseModel):
-    """Ràng buộc thật của từng kênh gửi.
+    """Actual constraints for each messaging channel.
 
-    Đây **không** phải sở thích viết lách mà là giới hạn của nền tảng và số liệu
-    đã đo được, nên code kiểm tra lại chứ không chỉ ghi vào prompt:
+    These are **not** writing preferences; they are platform limits and measured
+    results, so the code validates them instead of only putting them in the prompt:
 
-    - Lời mời kết nối LinkedIn cắt cứng ở 300 ký tự (tài khoản free chỉ 200) —
-      viết dài hơn là gửi không được.
-    - InMail: tiêu đề 200, thân 1900 ký tự.
-    - Email lạnh: Apollo đo thấy email 6–8 câu cho tỉ lệ trả lời cao nhất, nên
-      giới hạn ở đây theo số từ chứ không theo ký tự.
+    - LinkedIn connection requests have a hard 300-character limit (200 for free
+      accounts); longer messages cannot be sent.
+    - InMail: 200-character subject, 1,900-character body.
+    - Cold email: Apollo found that 6–8 sentences have the highest reply rate, so
+      this limit is based on word count rather than characters.
     """
 
     label: str
@@ -484,7 +557,7 @@ class ChannelSpec(BaseModel):
     max_body_chars: int | None = None
     max_body_words: int | None = None
     soft_body_chars: int | None = Field(
-        default=None, description="Vượt mức này vẫn gửi được nhưng nên cảnh báo"
+        default=None, description="Messages can still be sent above this limit, but should trigger a warning"
     )
     guidance: str = ""
 
@@ -524,24 +597,28 @@ MESSAGE_CHANNELS: dict[str, ChannelSpec] = {
 MESSAGE_TONES = ["direct", "friendly", "formal", "consultative"]
 MESSAGE_LANGUAGES = ["en", "vi"]
 
-# Apollo đo: gửi 1-2 người/công ty đạt tỉ lệ trả lời ~7.8%, từ 10 người trở lên
-# tụt còn ~3.8%. Vượt ngưỡng này thì cảnh báo chứ không chặn — đôi khi người
-# dùng có lý do riêng.
+# Apollo measured a ~7.8% reply rate when contacting 1–2 people per company,
+# dropping to ~3.8% when contacting 10 or more. Warn above this threshold rather
+# than blocking; users may have a reason.
 RECOMMENDED_CONTACTS_PER_COMPANY = 2
 
 
 class MessageTarget(BaseModel):
-    """1 người cần viết message.
+    """One person who needs a generated message.
 
-    Client chỉ gửi tên công ty + tên người; backend tự tra lại trong lần search
-    đã lưu. Làm vậy để client không thể bịa ra contact không có trong dữ liệu.
+    The client sends company and person IDs from the search snapshot. Names are
+    only for display and compatibility with older requests when names are unique.
     """
 
+    company_id: str | None = None
+    contact_id: str | None = None
     company_name: str
     contact_name: str
 
 
 class GeneratedMessage(BaseModel):
+    company_id: str | None = None
+    contact_id: str | None = None
     company_name: str
     contact_name: str
     contact_title: str | None = None
@@ -556,9 +633,9 @@ class GeneratedMessage(BaseModel):
     body: str = ""
 
     service_id: str | None = None
-    service_name: str | None = Field(default=None, description="Dịch vụ được chào trong message")
+    service_name: str | None = Field(default=None, description="Service offered in the message")
     personalization_used: list[str] = Field(
-        default_factory=list, description="Dữ kiện LLM khai là đã dùng để cá nhân hoá"
+        default_factory=list, description="Facts the LLM says it used to personalize the message"
     )
 
     subject_chars: int = 0
@@ -566,38 +643,38 @@ class GeneratedMessage(BaseModel):
     body_words: int = 0
 
     warnings: list[str] = Field(
-        default_factory=list, description="Vấn đề phát hiện bằng code sau khi LLM trả kết quả"
+        default_factory=list, description="Issues detected by code after the LLM returns a result"
     )
     error: str | None = None
 
 
 class MessageRequest(BaseModel):
-    run_id: str = Field(description="Lần search chứa các contact này")
+    run_id: str = Field(description="Search run containing these contacts")
     targets: list[MessageTarget] = Field(min_length=1)
     channel: str = "email"
     tone: str = "direct"
     language: str = "en"
     match_job_id: str | None = Field(
         default=None,
-        description="Kết quả matching để lấy dịch vụ khớp nhất + lý do — có thì message sát hơn hẳn",
+        description="Matching results with the best-fit service and rationale — makes messages much more relevant",
     )
     service_id: str | None = Field(
-        default=None, description="Ép chào 1 dịch vụ cụ thể thay vì lấy dịch vụ khớp nhất"
+        default=None, description="Offer a specific service instead of the best-matching service"
     )
     custom_instructions: str | None = Field(
-        default=None, description="Yêu cầu thêm, vd: 'nhắc tới hội thảo tuần trước'"
+        default=None, description="Additional instruction, e.g. 'mention last week's conference'"
     )
 
 
 class MessageJobSummary(BackgroundJobSummary):
-    """Job sinh message cho một danh sách contact."""
+    """Message generation job for a list of contacts."""
 
     run_id: str
     channel: str
     language: str
     tone: str
     notices: list[str] = Field(
-        default_factory=list, description="Cảnh báo ở mức cả job, vd: chọn quá nhiều người 1 công ty"
+        default_factory=list, description="Job-level warnings, e.g. too many selected contacts at one company"
     )
 
 

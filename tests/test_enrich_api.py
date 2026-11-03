@@ -9,7 +9,7 @@ from tests.conftest import auth, wait_for_job
 
 @pytest.fixture
 def client(db_path):
-    # Cấu hình tối thiểu chạy được: chỉ website + tầng 0, không LLM, không search.
+    # Minimum runnable configuration: website + stage 0 only, no LLM or search.
     settings = AppSettings()
     settings.enrichment.use_llm = False
     settings.enrichment.request_delay_seconds = 0
@@ -60,7 +60,7 @@ def test_job_runs_to_completion_and_is_pollable(client):
 
     final = wait_for_job(client, headers, f"/api/enrich/jobs/{job_id}")
 
-    # Domain không tồn tại -> vẫn phải hoàn tất job (không treo, không 500).
+    # A nonexistent domain must still let the job finish (no hang or 500).
     assert final["status"] == "completed"
     assert final["total"] == 1
     assert len(final["results"]) == 1

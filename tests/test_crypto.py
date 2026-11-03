@@ -31,7 +31,7 @@ def test_empty_values_pass_through():
 
 
 def test_plaintext_legacy_value_returned_as_is():
-    # Giá trị lưu từ trước khi bật mã hoá vẫn đọc được.
+    # Values saved before encryption was enabled remain readable.
     assert decrypt("legacy-plaintext-key") == "legacy-plaintext-key"
 
 

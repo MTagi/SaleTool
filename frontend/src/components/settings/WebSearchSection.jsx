@@ -3,25 +3,24 @@ import NumberField from "./NumberField";
 import SecretField from "./SecretField";
 import TestButton from "./TestButton";
 
-// Nhãn nói thẳng tình trạng free tier (tra lại 09/2026), vì đó là thứ quyết
-// định chọn cái nào — không phải chất lượng kết quả. Thứ tự dropdown do
-// models.py::SEARCH_PROVIDERS quyết định, đã xếp cái đáng chọn lên trước.
+// Labels state the free-tier status (checked 2026-09), since that affects the
+// choice more than result quality. The dropdown order comes from
+// models.py::SEARCH_PROVIDERS, with the most attractive options first.
 const PROVIDER_LABELS = {
   none: "None — read the company's own website only (free)",
   tavily: "Tavily — 1,000 searches/month free, no card needed",
   exa: "Exa — 1,000 searches/month free, no card needed",
-  searxng: "SearXNG — self-hosted, free, but engines block it more often now",
   serper: "Serper — 2,500 free once, then paid; scrapes Google SERPs (ToS risk)",
   brave: "Brave — no free tier since Feb 2026; card required, no spending cap",
 };
 
 /**
- * Tầng 2 của enrichment: tìm trang *ngoài* website công ty.
+ * Enrichment stage 2: find pages *outside* the company's website.
  *
- * "none" là mặc định và vẫn chạy được — đọc chính website công ty dùng sitemap,
- * không cần search provider nào cả.
+ * "none" is the default and still works: the company website is read through its
+ * sitemap, without requiring a search provider.
  */
-export default function WebSearchSection({ value, options, onChange }) {
+export default function WebSearchSection({ value, options, onChange, needsSave = false }) {
   const off = value.provider === "none";
   const needsKey = (options?.search_providers_requiring_key || []).includes(value.provider);
 
@@ -39,25 +38,13 @@ export default function WebSearchSection({ value, options, onChange }) {
       <label>
         Provider
         <select value={value.provider} onChange={(e) => onChange({ provider: e.target.value })}>
-          {(options?.search_providers || []).map((provider) => (
+          {(options?.search_providers || []).filter((provider) => provider !== "codex").map((provider) => (
             <option key={provider} value={provider}>
               {PROVIDER_LABELS[provider] || provider}
             </option>
           ))}
         </select>
       </label>
-
-      {value.provider === "searxng" && (
-        <label>
-          SearXNG instance URL
-          <input
-            type="text"
-            placeholder="http://localhost:8080"
-            value={value.searxng_url || ""}
-            onChange={(e) => onChange({ searxng_url: e.target.value })}
-          />
-        </label>
-      )}
 
       {needsKey && <SecretField value={value} onChange={onChange} placeholder="API key" />}
 
@@ -71,7 +58,7 @@ export default function WebSearchSection({ value, options, onChange }) {
         />
       )}
 
-      {!off && <TestButton target="search" label="Test search connection" />}
+      {!off && <TestButton key={String(needsSave)} needsSave={needsSave} target="search" label="Test search connection" />}
     </SettingsSection>
   );
 }

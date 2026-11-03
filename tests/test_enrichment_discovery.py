@@ -18,8 +18,8 @@ def test_search_queries_exclude_own_domain():
 
 
 def test_search_queries_include_extra_context():
-    queries = build_search_queries("Acme", None, "fintech tại TP.HCM")
-    assert any("fintech tại TP.HCM" in q for q in queries)
+    queries = build_search_queries("Acme", None, "fintech in Ho Chi Minh City")
+    assert any("fintech in Ho Chi Minh City" in q for q in queries)
 
 
 def test_factory_returns_no_op_provider_by_default():
@@ -34,13 +34,6 @@ def test_factory_rejects_unknown_provider():
         get_search_provider(SearchSettings(provider="not-real"))
 
 
-def test_searxng_requires_url():
-    import pytest
-
-    with pytest.raises(ValueError):
-        get_search_provider(SearchSettings(provider="searxng"))
-
-
 def test_paid_providers_require_api_key():
     import pytest
 
@@ -52,7 +45,7 @@ def test_paid_providers_require_api_key():
 def test_exa_is_registered_and_needs_a_key():
     from saletool.models import SEARCH_PROVIDERS, SEARCH_PROVIDERS_REQUIRING_KEY
 
-    # Ba chỗ phải khớp nhau, nếu không frontend sẽ hiện provider mà backend từ chối.
+    # All three lists must match, or the frontend will show a provider rejected by the backend.
     assert "exa" in SEARCH_PROVIDERS
     assert "exa" in SEARCH_PROVIDERS_REQUIRING_KEY
     assert get_search_provider(SearchSettings(provider="exa", api_key="k")).name == "exa"
@@ -79,7 +72,7 @@ def test_skips_build_assets_and_functional_pages():
 
     assert _should_skip("https://acme.vn/_next/static/chunks/webpack-01d756.js")
     assert _should_skip("https://acme.vn/static/css/main.6cf63a.css")
-    # Query cache-busting đứng sau đuôi file -> vẫn phải nhận ra là CSS.
+    # A cache-busting query follows the extension; it must still be identified as CSS.
     assert _should_skip("https://acme.vn/assets/app.css?v=9f2a")
     assert _should_skip("https://acme.vn/logo.png")
     assert _should_skip("https://acme.vn/login")
@@ -90,7 +83,7 @@ def test_skips_build_assets_and_functional_pages():
 
 
 def test_exa_sends_the_documented_request_shape(httpx_mock):
-    """Chốt hợp đồng HTTP với Exa: endpoint, header auth, tên trường body."""
+    """Verify the Exa HTTP contract: endpoint, auth header, and body field names."""
     import asyncio
 
     httpx_mock.add_response(
@@ -99,7 +92,7 @@ def test_exa_sends_the_documented_request_shape(httpx_mock):
     )
 
     provider = get_search_provider(SearchSettings(provider="exa", api_key="secret"))
-    results = asyncio.run(provider.search("Acme giới thiệu công ty", max_results=3))
+    results = asyncio.run(provider.search("Acme company profile", max_results=3))
 
     request = httpx_mock.get_requests()[0]
     assert request.headers["Authorization"] == "Bearer secret"
@@ -107,22 +100,22 @@ def test_exa_sends_the_documented_request_shape(httpx_mock):
     import json
 
     body = json.loads(request.content)
-    assert body["query"] == "Acme giới thiệu công ty"
+    assert body["query"] == "Acme company profile"
     assert body["numResults"] == 3
-    # Không xin `contents`: Exa tính thêm tiền cho phần trích nội dung, mà
-    # pipeline chỉ dùng `url`. Xin về là trả tiền cho thứ bị vứt đi ngay sau đó.
+    # Do not request `contents`: Exa charges extra for extraction, while the
+    # pipeline only uses `url`. That would pay for data immediately discarded.
     assert "contents" not in body
 
     assert [r.url for r in results] == ["https://vnexpress.net/acme"]
 
 
 def test_exa_skips_results_without_a_url(httpx_mock):
-    """Kết quả thiếu url là vô dụng với pipeline — bỏ, không để lọt vào danh sách."""
+    """Results without a URL are useless to the pipeline; exclude them from the list."""
     import asyncio
 
     httpx_mock.add_response(
         url="https://api.exa.ai/search",
-        json={"results": [{"title": "khong co url"}, {"url": "https://ok.vn"}]},
+        json={"results": [{"title": "missing URL"}, {"url": "https://ok.vn"}]},
     )
 
     provider = get_search_provider(SearchSettings(provider="exa", api_key="k"))

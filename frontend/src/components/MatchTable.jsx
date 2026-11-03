@@ -23,9 +23,9 @@ function ScoreBadge({ score }) {
  * carries what you sort by (rank, score, best service, the one-line reason); the
  * signals, concerns and per-service scores open underneath the row.
  *
- * `selection` là một `useSelection`; bỏ trống thì bảng chỉ để đọc, không có cột
- * tick. `selectableKeys` là những công ty tick được — công ty chấm lỗi không nằm
- * trong đó, nên "chọn tất cả" không bao giờ chọn phải chúng.
+ * `selection` is a `useSelection`; when omitted, the table is read-only and has
+ * no checkbox column. `selectableKeys` lists companies that can be selected.
+ * Companies with scoring errors are excluded, so "select all" never includes them.
  */
 export default function MatchTable({ matches, selection, selectableKeys = [] }) {
   const [open, setOpen] = useState(null);

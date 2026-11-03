@@ -1,9 +1,9 @@
-"""Implementation MongoDB của các repository — sẵn sàng để chuyển sang khi cần
-scale, chưa bật mặc định. Cần cài thêm `pymongo` (không nằm trong
-requirements.txt gốc, xem requirements-mongo.txt) và một MongoDB server.
+"""MongoDB repository implementation — available for future scaling, but not
+enabled by default. Requires `pymongo` (not in the base requirements.txt; see
+requirements-mongo.txt) and a MongoDB server.
 
-`client` cho phép inject 1 client tương thích pymongo (vd: mongomock trong
-test) thay vì luôn kết nối MongoDB thật.
+`client` allows injection of a pymongo-compatible client (e.g. mongomock in
+tests) instead of always connecting to a real MongoDB instance.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, ClassVar
 
-from saletool.crypto import decrypt, encrypt
 from saletool.clock import now_iso
+from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
@@ -47,8 +47,8 @@ def _connect(client: Any, uri: str) -> Any:
         from pymongo import MongoClient
     except ImportError as exc:
         raise RuntimeError(
-            "Cần cài đặt 'pymongo' để dùng MongoDB backend: pip install pymongo "
-            "(hoặc pip install -r requirements-mongo.txt)"
+            "Install 'pymongo' to use the MongoDB backend: pip install pymongo "
+            "(or pip install -r requirements-mongo.txt)"
         ) from exc
     return MongoClient(uri)
 
@@ -61,14 +61,14 @@ class MongoUserRepository(UserRepository):
     def create_user(self, username: str, password_hash: str) -> None:
         username = username.strip()
         if not username or not password_hash:
-            raise ValueError("Tên đăng nhập và mật khẩu không được để trống.")
+            raise ValueError("Username and password cannot be empty.")
 
         from pymongo.errors import DuplicateKeyError
 
         try:
             self._collection.insert_one({"username": username, "password_hash": password_hash})
         except DuplicateKeyError as exc:
-            raise ValueError(f"Tài khoản '{username}' đã tồn tại.") from exc
+            raise ValueError(f"Account '{username}' already exists.") from exc
 
     def get_password_hash(self, username: str) -> str | None:
         doc = self._collection.find_one({"username": username.strip()})
@@ -125,7 +125,7 @@ class MongoSearchRunRepository(SearchRunRepository):
         cursor = (
             self._collection.find(
                 {"username": username},
-                {"results": 0},  # bỏ field results nặng khi chỉ cần liệt kê
+                {"results": 0},  # Omit large results when only listing records.
             )
             .sort("created_at", -1)
             .limit(limit)
@@ -140,6 +140,9 @@ class MongoSearchRunRepository(SearchRunRepository):
         doc = self._collection.find_one({"username": username}, sort=[("created_at", -1)])
         return self._doc_to_detail(doc) if doc else None
 
+    def delete_run(self, username: str, run_id: str) -> bool:
+        result = self._collection.delete_one({"_id": run_id, "username": username})
+        return result.deleted_count > 0
     @staticmethod
     def _doc_to_summary(doc: dict) -> SearchRunSummary:
         return SearchRunSummary(
@@ -167,7 +170,7 @@ class MongoSearchRunRepository(SearchRunRepository):
 
 
 class MongoSettingsRepository(SettingsRepository):
-    """Cấu hình lưu trong 1 document duy nhất (_id = "app") — phạm vi toàn hệ thống."""
+    """Configuration stored in one document (_id = "app"), system-wide."""
 
     _DOC_ID = "app"
 
@@ -183,6 +186,7 @@ class MongoSettingsRepository(SettingsRepository):
         settings = AppSettings.model_validate(payload)
         settings.llm.api_key = decrypt(settings.llm.api_key)
         settings.search.api_key = decrypt(settings.search.api_key)
+        settings.data_source.api_key = decrypt(settings.data_source.api_key)
         return settings
 
     def save_settings(self, settings: AppSettings, updated_by: str) -> AppSettings:
@@ -191,6 +195,7 @@ class MongoSettingsRepository(SettingsRepository):
         to_store = settings.model_copy(deep=True)
         to_store.llm.api_key = encrypt(to_store.llm.api_key)
         to_store.search.api_key = encrypt(to_store.search.api_key)
+        to_store.data_source.api_key = encrypt(to_store.data_source.api_key)
         to_store.updated_at = updated_at
         to_store.updated_by = updated_by
 
@@ -262,10 +267,10 @@ class MongoServiceRepository(ServiceRepository):
 
 
 class _MongoJobRepository:
-    """Phần thân dùng chung cho cả ba loại job — xem `_SQLiteJobRepository`.
+    """Shared implementation for all three job types; see `_SQLiteJobRepository`.
 
-    `_list_projection` bỏ các field nặng khi liệt kê; mỗi loại job có bộ field
-    nặng riêng nên đó là chỗ duy nhất chúng khác nhau ngoài tên collection.
+    `_list_projection` omits large fields when listing. Each job type has its own
+    large fields, which is their only difference besides collection name.
     """
 
     _collection_name: str
@@ -291,6 +296,21 @@ class _MongoJobRepository:
         doc = self._collection.find_one({"_id": job_id, "username": username})
         return self._detail_model.model_validate({**doc, "id": doc["_id"]}) if doc else None
 
+    def fail_active_jobs(self, reason: str, finished_at: str) -> int:
+        result = self._collection.update_many(
+            {"status": {"$in": ["pending", "running"]}},
+            {"$set": {"status": "failed", "error": reason,
+                      "finished_at": finished_at, "current_target": None}},
+        )
+        return result.modified_count
+
+    def list_for_run(self, username: str, run_id: str, include_unlinked: bool = False) -> list:
+        query = {"username": username, "run_id": {"$in": [run_id, None]} if include_unlinked else run_id}
+        cursor = self._collection.find(query).sort([("created_at", -1), ("_id", -1)])
+        return [self._detail_model.model_validate({**doc, "id": doc["_id"]}) for doc in cursor]
+
+    def delete_for_run(self, username: str, run_id: str) -> None:
+        self._collection.delete_many({"username": username, "run_id": run_id})
     def list_jobs(self, username: str, limit: int = 20) -> list:
         cursor = (
             self._collection.find({"username": username}, self._list_projection)

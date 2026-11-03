@@ -1,4 +1,4 @@
-"""/api/messages — sinh message gửi cho từng contact, chạy nền."""
+"""/api/messages — generate a message for each contact in the background."""
 
 from __future__ import annotations
 
@@ -9,11 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from saletool.api import jobs
 from saletool.api.deps import get_current_user
 from saletool.db.factory import (
+    get_match_job_repository,
     get_message_job_repository,
     get_search_run_repository,
     get_service_repository,
     get_settings_repository,
 )
+from saletool.identity import resolve_message_target
 from saletool.models import (
     MESSAGE_CHANNELS,
     MESSAGE_LANGUAGES,
@@ -24,15 +26,15 @@ from saletool.models import (
 
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
-# Mỗi contact tốn 1 lượt gọi LLM.
+# Each contact costs one LLM call.
 MAX_TARGETS_PER_JOB = 50
 
 
 def _job_notices(request: MessageRequest) -> list[str]:
-    """Cảnh báo mức cả job — nói trước khi chạy chứ không để người dùng tự đoán."""
+    """Job-level warnings, shown before running so users do not have to guess."""
     notices: list[str] = []
 
-    per_company = Counter(t.company_name.strip().lower() for t in request.targets)
+    per_company = Counter(t.company_id or t.company_name.strip().lower() for t in request.targets)
     crowded = [name for name, count in per_company.items() if count > RECOMMENDED_CONTACTS_PER_COMPANY]
     if crowded:
         notices.append(
@@ -52,7 +54,7 @@ def _job_notices(request: MessageRequest) -> list[str]:
 
 @router.get("/options")
 def message_options(_: str = Depends(get_current_user)) -> dict:
-    """Kênh gửi + giới hạn thật của từng kênh, để UI hiển thị đúng mà không chép cứng."""
+    """Messaging channels and their actual limits, so the UI can display them without hardcoding."""
     return {
         "channels": [
             {
@@ -74,10 +76,10 @@ def message_options(_: str = Depends(get_current_user)) -> dict:
 
 @router.post("")
 async def start_messages(payload: MessageRequest, user: str = Depends(get_current_user)) -> dict:
-    """Tạo job sinh message. Trả về ngay, client poll trạng thái.
+    """Create a message generation job. Return immediately; the client polls status.
 
-    Phải là `async def` — handler đồng bộ chạy trong threadpool, ở đó
-    `asyncio.create_task` sẽ lỗi "no running event loop".
+    Must be `async def`; synchronous handlers run in a thread pool, where
+    `asyncio.create_task` fails with "no running event loop".
     """
     settings = get_settings_repository().get_settings()
     if not settings.llm.api_key:
@@ -113,6 +115,22 @@ async def start_messages(payload: MessageRequest, user: str = Depends(get_curren
     run = get_search_run_repository().get_run(user, payload.run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search run not found.")
+
+    for target in payload.targets:
+        try:
+            resolve_message_target(run, target)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if payload.match_job_id:
+        match_job = get_match_job_repository().get_job(user, payload.match_job_id)
+        if not match_job:
+            raise HTTPException(status_code=404, detail="Matching run not found.")
+        if match_job.run_id != run.id or match_job.status != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail="Choose a completed matching run from the selected search.",
+            )
 
     if payload.service_id and not get_service_repository().get_service(payload.service_id):
         raise HTTPException(

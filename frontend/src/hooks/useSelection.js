@@ -1,15 +1,15 @@
 import { useCallback, useMemo, useState } from "react";
 
 /**
- * Một tập đang được chọn, cùng các thao tác quen thuộc trên nó.
+ * A selection set with the common operations used to manage it.
  *
- * Bốn trang đều cần đúng một thứ — tick/bỏ tick một dòng, chọn hết, xoá hết,
- * hỏi "dòng này có được chọn không" — và trước đây mỗi trang tự viết lại theo
- * một kiểu: chỗ dùng `Set`, chỗ dùng mảng, chỗ nhét cả hàm toggle vào giữa JSX.
- * Gom về đây để mọi trang cùng một ngữ nghĩa và cùng cách đọc.
+ * All four pages need the same operations — toggle a row, select all, clear all,
+ * and check whether a row is selected. Each page used to implement them
+ * differently: some used `Set`, some used arrays, and some put toggle functions
+ * inside JSX. Keep them here so every page has the same behavior and interface.
  *
- * Khoá phần tử do caller quyết định (tên công ty, chỉ số trong danh sách…) —
- * hook không giả định gì về kiểu của nó, chỉ cần so sánh được bằng `===`.
+ * The caller chooses item keys (company name, list index, etc.); this hook makes
+ * no assumptions about their type, as long as they can be compared with `===`.
  */
 export function useSelection(initial = []) {
   const [keys, setKeys] = useState(() => new Set(initial));
@@ -23,7 +23,7 @@ export function useSelection(initial = []) {
     });
   }, []);
 
-  /** Chọn hết / bỏ hết. `allKeys` truyền vào lúc gọi vì danh sách đổi theo dữ liệu. */
+  /** Select all or clear all. Pass `allKeys` when called because the list follows the data. */
   const setAll = useCallback((on, allKeys) => {
     setKeys(on ? new Set(allKeys) : new Set());
   }, []);
@@ -37,7 +37,7 @@ export function useSelection(initial = []) {
       size: keys.size,
       isEmpty: keys.size === 0,
       has: (key) => keys.has(key),
-      /** Đã chọn trọn vẹn danh sách này chưa — dùng cho ô tick "chọn tất cả". */
+      /** Is the entire list selected? Used by the "select all" checkbox. */
       hasAll: (allKeys) => allKeys.length > 0 && allKeys.every((key) => keys.has(key)),
       toList: () => [...keys],
       toggle,

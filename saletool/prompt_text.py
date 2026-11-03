@@ -1,8 +1,8 @@
-"""Tiện ích cắt gọn text trước khi đưa vào prompt.
+"""Utilities for trimming text before adding it to a prompt.
 
-Dùng chung cho matching và messaging: cả hai đều dựng "brief" về công ty từ cùng
-một nguồn dữ liệu, và cả hai đều cần chặn độ dài. Prompt dài hơn không làm kết
-quả tốt hơn — chỉ tốn token và đẩy phần quan trọng ra xa khỏi chỗ model chú ý.
+Shared by matching and messaging: both build a company brief from the same data
+and need a length limit. Longer prompts do not improve results; they use more
+tokens and push important details away from the model's focus.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ MAX_LIST_ITEMS = 12
 
 
 def clip_text(text: str | None, limit: int = MAX_DESCRIPTION_CHARS) -> str | None:
-    """Gộp khoảng trắng và cắt ở `limit` ký tự, có dấu … để thấy là đã bị cắt."""
+    """Collapse whitespace and truncate at `limit` characters, adding … to mark truncation."""
     if not text:
         return None
     text = " ".join(text.split())

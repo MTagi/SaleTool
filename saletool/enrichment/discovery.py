@@ -1,9 +1,9 @@
-"""Tìm ra những URL nào đáng đọc cho 1 công ty.
+"""Find URLs worth reading for a company.
 
-Hai nguồn tách bạch:
-1. Website của chính công ty — KHÔNG cần search API. Đã có domain thì đọc
-   sitemap.xml / crawl nông là đủ, vừa miễn phí vừa đầy đủ hơn search.
-2. Trang bên ngoài nói về công ty — chỗ này mới cần SearchProvider.
+Two distinct sources:
+1. The company's own website — no search API needed. With a domain, reading
+   sitemap.xml or shallow crawling is free and more complete than search.
+2. External pages about the company — these require a SearchProvider.
 """
 
 from __future__ import annotations
@@ -14,11 +14,13 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from saletool.enrichment.fetcher import DomainRateLimiter, RobotsCache
+from saletool.enrichment.safe_url import UnsafeURLError, public_get
 from saletool.enrichment.search import SearchProvider
 
 logger = logging.getLogger(__name__)
 
-# Đường dẫn hay chứa thông tin công ty — cả tiếng Anh lẫn tiếng Việt.
+# Paths that often contain company information, in both English and Vietnamese.
 PRIORITY_PATH_PATTERNS = [
     r"/about",
     r"/gioi-thieu",
@@ -38,17 +40,17 @@ PRIORITY_PATH_PATTERNS = [
 
 _PRIORITY_RE = re.compile("|".join(PRIORITY_PATH_PATTERNS), re.IGNORECASE)
 
-# Đuôi file không phải trang nội dung. Có cả css/js vì site dựng bằng Next.js,
-# Nuxt... nhét đường dẫn bundle vào ngay trong HTML trang chủ, crawl nông sẽ
-# nhặt phải: mỗi cái tốn 1 request + 1 nhịp nghỉ rate limit rồi bị fetcher loại
-# vì sai content-type.
+# File extensions that are not content pages. Include css/js because Next.js,
+# Nuxt, etc. embed bundle paths in the homepage HTML; shallow crawling can find
+# them, wasting a request and rate-limit delay before the fetcher rejects them
+# for an incorrect content type.
 _SKIP_EXT_RE = re.compile(
     r"\.(css|js|mjs|map|json|pdf|jpg|jpeg|png|gif|svg|webp|ico|zip|rar"
     r"|docx?|xlsx?|pptx?|mp4|mp3|woff2?|ttf|otf|eot)$",
     re.IGNORECASE,
 )
 
-# Thư mục chỉ chứa asset build hoặc chức năng — không bao giờ có thông tin công ty.
+# Directories containing only build assets or functionality, never company information.
 _SKIP_PATH_RE = re.compile(
     r"/_next/static/|/_nuxt/|/static/(?:js|css|media)/|/wp-json/|/wp-admin/"
     r"|/wp-includes/|/wp-content/|/cdn-cgi/|/cart|/checkout|/login|/dang-nhap",
@@ -57,20 +59,21 @@ _SKIP_PATH_RE = re.compile(
 
 
 def _should_skip(url: str) -> bool:
-    """URL này có đáng tải không.
+    """Is this URL worth fetching?
 
-    Khớp trên phần path chứ không phải cả URL: đuôi file hay đi kèm query
-    cache-busting (`/app.css?v=9f2a`), neo `$` vào cả URL sẽ trượt hết.
+    Match the path, not the full URL: file extensions often have cache-busting
+    query strings (`/app.css?v=9f2a`), so anchoring `$` to the full URL misses them.
     """
     path = urlparse(url).path
     return bool(_SKIP_EXT_RE.search(path) or _SKIP_PATH_RE.search(path))
+
 
 _SITEMAP_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
 _HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
 
 
 def normalize_domain(raw: str) -> str | None:
-    """'https://www.ABC.com/x' -> 'abc.com'. Domain là khoá nối dữ liệu tốt nhất."""
+    """Convert 'https://www.ABC.com/x' to 'abc.com'. Domain is the best key for joining data."""
     if not raw:
         return None
 
@@ -93,7 +96,7 @@ def _same_site(url: str, domain: str) -> bool:
 
 
 def _rank(url: str) -> int:
-    """Trang ưu tiên trước, trang chủ kế, còn lại sau."""
+    """Prioritized pages first, homepage next, and all others last."""
     path = urlparse(url).path or "/"
     if _PRIORITY_RE.search(path):
         return 0
@@ -102,19 +105,31 @@ def _rank(url: str) -> int:
     return 2
 
 
-async def _get(client: httpx.AsyncClient, url: str, user_agent: str) -> httpx.Response | None:
+async def _get(
+    client: httpx.AsyncClient,
+    url: str,
+    user_agent: str,
+    robots: RobotsCache | None = None,
+    limiter: DomainRateLimiter | None = None,
+) -> httpx.Response | None:
     try:
-        resp = await client.get(url, headers={"User-Agent": user_agent}, follow_redirects=True)
-    except httpx.HTTPError:
+        resp = await public_get(
+            client,
+            url,
+            headers={"User-Agent": user_agent},
+            allowed=robots.allowed if robots else None,
+            wait=limiter.wait if limiter else None,
+        )
+    except (httpx.HTTPError, UnsafeURLError):
         return None
     return resp if resp.status_code == 200 else None
 
 
 def _origin_candidates(domain: str) -> list[str]:
-    """Các gốc URL nên thử, theo thứ tự ưu tiên.
+    """URL bases to try, in priority order.
 
-    Có cả http:// vì không ít website doanh nghiệp nhỏ (đặc biệt SME Việt Nam)
-    vẫn chưa bật HTTPS — nếu chỉ thử https thì sẽ bỏ sót hẳn nhóm này.
+    Include http:// because many small business websites (especially Vietnamese
+    SMEs) still do not use HTTPS; trying only https would miss them entirely.
     """
     return [
         f"https://{domain}",
@@ -125,23 +140,28 @@ def _origin_candidates(domain: str) -> list[str]:
 
 
 async def urls_from_sitemap(
-    domain: str, user_agent: str, timeout: float = 15.0, max_urls: int = 200
+    domain: str,
+    user_agent: str,
+    timeout: float = 15.0,
+    max_urls: int = 200,
+    robots: RobotsCache | None = None,
+    limiter: DomainRateLimiter | None = None,
 ) -> list[str]:
-    """Đọc sitemap.xml (kể cả sitemap index 1 tầng). Trả rỗng nếu site không có."""
+    """Read sitemap.xml (including one level of sitemap index). Return empty if absent."""
     found: list[str] = []
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         for base in _origin_candidates(domain):
-            resp = await _get(client, f"{base}/sitemap.xml", user_agent)
+            resp = await _get(client, f"{base}/sitemap.xml", user_agent, robots, limiter)
             if not resp:
                 continue
 
             locs = _SITEMAP_LOC_RE.findall(resp.text)
 
-            # Sitemap index -> lấy tiếp các sitemap con (giới hạn 5 để không nổ).
+            # Sitemap index -> fetch child sitemaps (limit to five to avoid runaway requests).
             if locs and locs[0].rstrip("/").endswith(".xml"):
                 for child in locs[:5]:
-                    child_resp = await _get(client, child, user_agent)
+                    child_resp = await _get(client, child, user_agent, robots, limiter)
                     if child_resp:
                         found.extend(_SITEMAP_LOC_RE.findall(child_resp.text))
             else:
@@ -155,12 +175,17 @@ async def urls_from_sitemap(
 
 
 async def urls_from_homepage(
-    domain: str, user_agent: str, timeout: float = 15.0, max_urls: int = 100
+    domain: str,
+    user_agent: str,
+    timeout: float = 15.0,
+    max_urls: int = 100,
+    robots: RobotsCache | None = None,
+    limiter: DomainRateLimiter | None = None,
 ) -> list[str]:
-    """Fallback khi không có sitemap: lấy link từ trang chủ (crawl nông 1 tầng)."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    """Fallback when no sitemap exists: collect links from the homepage (one-level shallow crawl)."""
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         for base in _origin_candidates(domain):
-            resp = await _get(client, base, user_agent)
+            resp = await _get(client, base, user_agent, robots, limiter)
             if not resp:
                 continue
 
@@ -181,30 +206,41 @@ async def urls_from_homepage(
 
 
 async def discover_company_site_urls(
-    domain: str, user_agent: str, max_pages: int, timeout: float = 15.0
+    domain: str,
+    user_agent: str,
+    max_pages: int,
+    timeout: float = 15.0,
+    robots: RobotsCache | None = None,
+    limiter: DomainRateLimiter | None = None,
 ) -> list[str]:
-    """URL nên đọc trên website của chính công ty, đã xếp theo độ ưu tiên."""
-    urls = await urls_from_sitemap(domain, user_agent, timeout=timeout)
+    """Prioritized URLs to read on the company's own website."""
+    urls = await urls_from_sitemap(
+        domain, user_agent, timeout=timeout, robots=robots, limiter=limiter
+    )
     if not urls:
-        urls = await urls_from_homepage(domain, user_agent, timeout=timeout)
+        urls = await urls_from_homepage(
+            domain, user_agent, timeout=timeout, robots=robots, limiter=limiter
+        )
 
     same_site = [u for u in urls if _same_site(u, domain)]
     if not same_site:
-        same_site = [f"https://{domain}"]  # không tìm được gì -> ít nhất thử trang chủ
+        same_site = [f"https://{domain}"]  # If nothing else is found, at least try the homepage.
 
     same_site.sort(key=_rank)
     return same_site[:max_pages]
 
 
-def build_search_queries(company_name: str, domain: str | None, extra_context: str | None) -> list[str]:
-    """Câu truy vấn tìm trang BÊN NGOÀI nói về công ty."""
+def build_search_queries(
+    company_name: str, domain: str | None, extra_context: str | None
+) -> list[str]:
+    """Queries for finding EXTERNAL pages about the company."""
     name = company_name.strip()
-    queries = [f'"{name}" giới thiệu công ty', f'"{name}" ban lãnh đạo OR CEO OR "giám đốc"']
+    queries = [f'"{name}" company profile', f'"{name}" leadership OR CEO OR "managing director"']
 
     if extra_context:
         queries.append(f'"{name}" {extra_context.strip()}')
     if domain:
-        # Loại kết quả từ chính website công ty — phần đó đã crawl trực tiếp rồi.
+        # Exclude results from the company's own website; it was crawled directly.
         queries.append(f'"{name}" -site:{domain}')
 
     return queries
@@ -216,22 +252,23 @@ async def discover_external_urls(
     domain: str | None,
     extra_context: str | None,
     max_results: int,
+    queries: list[str] | None = None,
 ) -> list[str]:
-    """Chạy các query qua SearchProvider, gộp và khử trùng URL."""
+    """Run queries through the SearchProvider, then merge and deduplicate URLs."""
     seen: list[str] = []
 
-    for query in build_search_queries(company_name, domain, extra_context):
+    for query in queries or build_search_queries(company_name, domain, extra_context):
         try:
             results = await provider.search(query, max_results=max_results)
-        except Exception as exc:  # noqa: BLE001 - search hỏng không được làm sập enrich
-            logger.warning("Search '%s' lỗi: %s", query, exc)
+        except Exception as exc:  # noqa: BLE001 - Search failures must not stop enrichment.
+            logger.warning("Search '%s' failed: %s", query, exc)
             continue
 
         for item in results:
             url = item.url.split("#")[0]
             if _should_skip(url) or url in seen:
                 continue
-            # Bỏ trang thuộc chính domain công ty — đã crawl riêng.
+            # Skip pages on the company's own domain; it was crawled separately.
             if domain and _same_site(url, domain):
                 continue
             seen.append(url)

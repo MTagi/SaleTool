@@ -4,15 +4,15 @@ __all__ = ["CompanyContactProvider", "get_provider"]
 
 
 def get_provider(name: str, **kwargs) -> CompanyContactProvider:
-    """Factory khởi tạo provider theo tên.
+    """Factory for creating a provider by name.
 
-    Hiện chỉ có Apollo. Factory và interface `CompanyContactProvider` được giữ
-    lại để thêm nhà cung cấp khác sau này (People Data Labs, Coresignal, import
-    CSV thủ công…) mà không phải sửa route hay pipeline — xem lịch sử git cho
-    hai provider `mock` và `csv_import` đã gỡ.
+    Apollo is currently the only provider. The factory and `CompanyContactProvider`
+    interface remain so another provider can be added later (People Data Labs,
+    Coresignal, manual CSV import, etc.) without changing routes or the pipeline.
+    See git history for the removed `mock` and `csv_import` providers.
     """
     if name == "apollo":
         from saletool.providers.apollo import ApolloProvider
 
         return ApolloProvider(**kwargs)
-    raise ValueError(f"Provider không được hỗ trợ: {name}")
+    raise ValueError(f"Unsupported provider: {name}")

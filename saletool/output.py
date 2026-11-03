@@ -1,4 +1,4 @@
-"""Xuất kết quả (danh sách công ty + liên hệ) ra CSV hoặc JSON."""
+"""Export company and contact results as CSV or JSON."""
 
 from __future__ import annotations
 

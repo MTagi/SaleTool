@@ -1,6 +1,6 @@
-"""Test MongoUserRepository/MongoSearchRunRepository qua mongomock — không cần
-MongoDB server thật, nhưng dùng cùng driver pymongo thật (chỉ khác client) nên
-khớp hành vi thực tế."""
+"""Test MongoUserRepository/MongoSearchRunRepository with mongomock — no real
+MongoDB server is needed, but the real pymongo driver is used (only the client
+differs), so behavior matches production."""
 
 import mongomock
 import pytest
@@ -115,7 +115,7 @@ def test_get_latest_run_none_when_no_history(run_repo):
     assert run_repo.get_latest_run("nobody") is None
 
 
-# --- Catalog dịch vụ + job matching -----------------------------------------
+# --- Service catalog + matching jobs ----------------------------------------
 
 
 @pytest.fixture

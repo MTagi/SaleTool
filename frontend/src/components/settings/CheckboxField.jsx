@@ -1,4 +1,4 @@
-/** Một ô tick kèm nhãn — dạng lặp lại nhiều nhất trong Settings. */
+/** A checkbox with a label, the most common repeated field in Settings. */
 export default function CheckboxField({ checked, onChange, children }) {
   return (
     <label className="checkbox">

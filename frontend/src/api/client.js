@@ -47,12 +47,15 @@ export const api = {
   listRuns: () => request("/api/search/runs"),
   getSearchOptions: () => request("/api/search/options"),
   getRun: (runId) => request(`/api/search/runs/${runId}`),
+  getRunHistory: (runId) => request(`/api/search/runs/${encodeURIComponent(runId)}/history`),
+  deleteRun: (runId) => request(`/api/search/runs/${encodeURIComponent(runId)}`, { method: "DELETE" }),
 
   getSettings: () => request("/api/settings"),
   saveSettings: (settings) => request("/api/settings", { method: "PUT", body: settings }),
   testConnection: (target) => request("/api/settings/test", { method: "POST", body: { target } }),
 
-  startEnrich: (targets) => request("/api/enrich", { method: "POST", body: { targets } }),
+  startEnrich: (targets, runId = null) =>
+    request("/api/enrich", { method: "POST", body: { targets, run_id: runId } }),
   getEnrichJob: (jobId) => request(`/api/enrich/jobs/${jobId}`),
 
   listServices: () => request("/api/catalog"),

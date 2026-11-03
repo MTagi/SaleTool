@@ -1,18 +1,18 @@
-"""Sinh message gửi cho 1 contact cụ thể.
+"""Generate a message for one specific contact.
 
-Prompt ở đây dựng theo hướng dẫn công khai của Apollo.io về cold email, vì đó là
-bên có số liệu thật trên hàng triệu email:
+The prompt follows Apollo.io's public cold-email guidance, based on data from
+millions of emails:
 
-- **Situational awareness, không phải demographic awareness.** "Tôi thấy anh là
-  CFO ngành sản xuất" là mail-merge; "công ty anh đang chốt sổ thủ công qua ba
-  nhà máy" mới là lý do người ta trả lời. Prompt bắt câu mở đầu phải nói về
-  *tình huống* của họ, không phải chức danh.
-- **6-8 câu.** Apollo đo email trong khoảng này có tỉ lệ trả lời cao nhất.
-- **Một ý, một lời đề nghị.** Nhiều CTA làm giảm tỉ lệ trả lời.
-- Câu đầu tiên nói về **họ**, không phải về mình.
+- **Situational awareness, not demographic awareness.** "I see you are a CFO in
+  manufacturing" is mail merge; "your company closes books manually across three
+  plants" gives the reader a reason to reply. The prompt requires an opening
+  about their *situation*, not their job title.
+- **6–8 sentences.** Apollo found this range has the highest reply rate.
+- **One idea, one offer.** Multiple CTAs reduce reply rates.
+- The first sentence should be about **them**, not us.
 
-Hai điều prompt KHÔNG lo được nên code phải kiểm lại (xem `pipeline.py`):
-giới hạn ký tự của LinkedIn, và chuyện model để sót placeholder kiểu `[Name]`.
+The prompt cannot enforce two constraints, so code checks them afterward (see
+`pipeline.py`): LinkedIn character limits and placeholders such as `[Name]`.
 """
 
 from __future__ import annotations
@@ -154,8 +154,8 @@ class MessageLLMClient:
 
         payload = {
             "model": self.settings.model,
-            # Sinh văn bản nên cần một chút biến thiên; 0.0 khiến mọi contact
-            # nhận gần như cùng một câu chữ, đúng thứ làm outreach bị đánh spam.
+            # Text generation needs some variation; 0.0 makes every contact
+            # receive nearly identical wording, which can make outreach look like spam.
             "temperature": max(self.settings.temperature, 0.4),
             "max_tokens": self.settings.max_output_tokens,
             "messages": [
@@ -185,7 +185,7 @@ class MessageLLMClient:
         try:
             return MessageDraft.model_validate(data)
         except ValidationError as exc:
-            logger.warning("Message lệch schema, dùng phần hợp lệ: %s", exc)
+            logger.warning("Message did not match schema; using valid fields: %s", exc)
             if not isinstance(data, dict):
                 raise LLMError("Model did not return a message object.") from exc
             used = data.get("personalization_used")

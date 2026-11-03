@@ -4,18 +4,17 @@ import NumberField from "./NumberField";
 import SecretField from "./SecretField";
 import TestButton from "./TestButton";
 
-// Gợi ý cho ô Model. Không phải danh sách đóng — ô vẫn gõ tự do được, vì
-// OpenRouter thêm model liên tục và hardcode danh sách thì tháng sau đã cũ.
+// Suggestions for the Model field, not a closed list. The field remains editable
+// because OpenRouter adds models frequently and a hardcoded list would quickly age.
 const MODEL_SUGGESTIONS = [
-  "google/gemini-2.0-flash-001",
+  "google/gemini-3.1-flash-lite",
+  "google/gemini-2.5-flash-lite",
   "google/gemini-2.5-flash",
-  "meta-llama/llama-3.3-70b-instruct",
-  "qwen/qwen-2.5-72b-instruct",
-  "openai/gpt-4o-mini",
+  "openai/gpt-5-mini",
 ];
 
-/** Model dùng cho enrichment, matching và messaging. */
-export default function LlmSection({ value, options, onChange }) {
+/** Model used for enrichment, matching, and messaging. */
+export default function LlmSection({ value, options, onChange, needsSave = false }) {
   const summary = [value.model || value.provider, value.api_key_set ? "key saved" : "no key"].join(
     " · ",
   );
@@ -90,7 +89,17 @@ export default function LlmSection({ value, options, onChange }) {
         />
       </div>
 
-      <TestButton target="llm" label="Test LLM connection" />
+      <TestButton key={String(needsSave)} needsSave={needsSave} target="llm" label="Test LLM connection" />
+      <NumberField
+        label="Model context window (tokens)"
+        value={value.context_window_tokens ?? 32768}
+        onChange={(n) => onChange({ context_window_tokens: n })}
+        min={2048}
+      />
+      <p className="muted small-note">
+        Set this to your model's supported context window. Requests reserve output tokens and
+        a safety margin, using a conservative UTF-8 byte estimate for input size.
+      </p>
     </SettingsSection>
   );
 }

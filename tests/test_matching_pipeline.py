@@ -1,7 +1,7 @@
-"""Test phần logic của matching — chỗ KHÔNG phụ thuộc LLM.
+"""Test matching logic that does NOT depend on an LLM.
 
-Thứ hạng và việc map nhãn dịch vụ đều do code quyết định, nên chúng phải kiểm
-được mà không cần gọi API thật.
+Rankings and service-label mapping are determined by code, so they must be
+testable without real API calls.
 """
 
 import asyncio
@@ -27,6 +27,7 @@ from saletool.models import (
     CompanyMatch,
     CompanyResult,
     Contact,
+    EnrichmentSource,
     Executive,
     Service,
     ServiceFit,
@@ -62,7 +63,7 @@ def _match(name: str, score: int, fits: list[int] | None = None, **overrides) ->
     )
 
 
-# --- Xếp hạng ---------------------------------------------------------------
+# --- Ranking ----------------------------------------------------------------
 
 
 def test_ranks_by_score_descending():
@@ -73,7 +74,7 @@ def test_ranks_by_score_descending():
 
 
 def test_ties_go_to_the_company_that_fits_more_services():
-    """Cùng điểm dịch vụ tốt nhất thì công ty bán được nhiều thứ hơn đứng trước."""
+    """When the best service score ties, rank the company matching more services first."""
     broad = _match("Broad", 80, fits=[80, 75, 70])
     narrow = _match("Narrow", 80, fits=[80, 10, 5])
 
@@ -83,7 +84,7 @@ def test_ties_go_to_the_company_that_fits_more_services():
 
 
 def test_failed_companies_sink_below_genuinely_low_scores():
-    """Chấm lỗi khác với chấm được điểm thấp — không được lẫn vào nhau."""
+    """A scoring error differs from a low score and must not be conflated."""
     ranked = rank_matches([_match("Broken", 0, fits=[], error="LLM timed out"), _match("Weak", 5)])
 
     assert [m.company_name for m in ranked] == ["Weak", "Broken"]
@@ -94,7 +95,7 @@ def test_ranking_an_empty_list_is_fine():
     assert rank_matches([]) == []
 
 
-# --- Map nhãn dịch vụ -------------------------------------------------------
+# --- Service label mapping --------------------------------------------------
 
 
 def test_resolves_short_labels_back_to_service_ids():
@@ -108,12 +109,12 @@ def test_resolves_short_labels_back_to_service_ids():
 
     fits = resolve_fits(scoring, services)
 
-    assert [f.service_id for f in fits] == ["svc-1", "svc-2"]  # theo thứ tự catalog
+    assert [f.service_id for f in fits] == ["svc-1", "svc-2"]  # Catalog order.
     assert {f.service_id: f.score for f in fits} == {"svc-1": 30, "svc-2": 80}
 
 
 def test_accepts_the_service_name_instead_of_the_label():
-    """Model nào cũng có lúc bỏ qua hướng dẫn định dạng — đừng vứt cả kết quả."""
+    """Models sometimes ignore formatting instructions; do not discard the whole result."""
     services = [_service("ERP", "svc-1")]
     scoring = MatchScoring(service_fits=[_ServiceFitOut(service_ref="erp", score=70)])
 
@@ -170,10 +171,10 @@ def test_catalog_is_rendered_with_short_labels():
 
     assert "[S1] ERP" in text
     assert "[S2] Audit" in text
-    assert "svc-1" not in text  # id thật không lọt vào prompt
+    assert "svc-1" not in text  # Real IDs must not appear in the prompt.
 
 
-# --- Hồ sơ công ty ----------------------------------------------------------
+# --- Company profile --------------------------------------------------------
 
 
 def test_profile_flags_itself_when_there_is_nothing_to_judge():
@@ -207,8 +208,8 @@ def test_profile_merges_enrichment_into_the_search_result():
 
 
 def test_search_result_wins_over_enrichment_for_the_same_field():
-    """Dữ liệu từ nhà cung cấp search là dữ liệu có cấu trúc; enrich là suy luận
-    từ website nên chỉ dùng để lấp chỗ trống."""
+    """Search-provider data is structured; enrichment is inferred from a website
+    and should only fill missing fields."""
     result = _result("Acme", industry="Logistics")
     enrichment = CompanyEnrichment(company_name="Acme", industry="Fintech")
 
@@ -227,7 +228,71 @@ def test_long_descriptions_are_clipped():
     assert "…" in profile
 
 
-# --- Ghép kết quả enrich ----------------------------------------------------
+def test_factory_evidence_and_sources_reach_the_scoring_request(monkeypatch):
+    report = (
+        "## Overview\n" + "General company information. " * 40
+        + "\n## Facilities\nWangnoi Beverage operates a plant in Ayutthaya. "
+        "Source: https://plant.example/facilities\n"
+        "## Gaps\nCCTV infrastructure and buying intent are not established."
+    )
+    enrichment = CompanyEnrichment(
+        company_name="Acme", description="Beverage manufacturer.",
+        summary_markdown=report, report_status="completed",
+        sources=[EnrichmentSource(
+            url="https://plant.example/facilities", fetched_at="2026-11-03",
+            fetch_method="http", extractor="json_ld+meta+regex", ok=True,
+        )],
+    )
+
+    async def score(settings, payload):
+        prompt = payload["messages"][1]["content"]
+        assert report in prompt
+        assert "Wangnoi Beverage" in prompt
+        assert "https://plant.example/facilities" in prompt
+        assert "CCTV infrastructure and buying intent are not established" in prompt
+        return {"summary": "Facilities verified; camera infrastructure still unknown.",
+                "service_fits": [{"service_ref": "S1", "score": 45, "rationale": "Factory"}]}
+
+    monkeypatch.setattr("saletool.matching.llm.request_json", score)
+    settings = AppSettings()
+    settings.llm.api_key = "test-key"
+    match = asyncio.run(match_company(_result("Acme"), [_service("VMS")], settings,
+                                     enrichment=enrichment))
+    assert match.error is None
+    assert match.used_enrichment
+    assert match.overall_score == 45
+
+
+def test_failed_report_falls_back_to_balanced_source_excerpts():
+    enrichment = CompanyEnrichment(
+        company_name="Acme", report_status="failed", summary_markdown="Stale report",
+        raw_markdown=("SOURCE URL: https://one.example\n" + "x" * 20000
+                      + "\n\nSOURCE URL: https://two.example\nVerified warehouse in Hanoi."),
+    )
+    profile = build_company_profile(_result("Acme"), enrichment)
+    assert "Stale report" not in profile
+    assert "Verified warehouse in Hanoi" in profile
+    assert "https://one.example" in profile
+    assert "https://two.example" in profile
+    assert "[truncated]" in profile
+    assert len(profile) < 17000
+
+
+def test_large_research_report_is_bounded_without_losing_source_urls():
+    enrichment = CompanyEnrichment(
+        company_name="Acme", summary_markdown="x" * 30000, report_status="completed",
+        sources=[EnrichmentSource(
+            url=url, fetched_at="2026-11-03", fetch_method="http", extractor="none", ok=ok,
+        ) for url, ok in [("https://verified.example", True), ("https://failed.example", False)]],
+    )
+    profile = build_company_profile(_result("Acme"), enrichment)
+    assert len(profile) < 17000
+    assert "[truncated]" in profile
+    assert "https://verified.example" in profile
+    assert "https://failed.example" not in profile
+
+
+# --- Join enrichment results -----------------------------------------------
 
 
 def test_enrichment_is_found_by_domain_and_by_name():
@@ -251,7 +316,24 @@ def test_the_newest_enrichment_wins():
     assert lookup_enrichment(index, "Acme", "acme.vn").description == "new"
 
 
-# --- match_company: lỗi LLM không được làm hỏng cả bảng ----------------------
+def test_enrichment_rejects_conflicting_domains_and_ambiguous_names():
+    first = CompanyEnrichment(company_name="Acme", domain="one.example")
+    second = CompanyEnrichment(company_name="Acme", domain="two.example")
+    index = build_enrichment_index([first])
+    assert lookup_enrichment(index, "Acme", "two.example") is None
+    assert lookup_enrichment(index, "Acme", None) is first
+    index = build_enrichment_index([first, second])
+    assert lookup_enrichment(index, "Acme", None) is None
+    assert lookup_enrichment(index, "Acme", "two.example") is second
+
+
+def test_company_name_cannot_collide_with_an_unrelated_domain():
+    unrelated = CompanyEnrichment(company_name="Unrelated", domain="acme.example")
+    index = build_enrichment_index([unrelated])
+    assert lookup_enrichment(index, "acme.example", None) is None
+
+
+# --- match_company: LLM errors must not fail the whole table ----------------
 
 
 def test_llm_failure_is_recorded_on_the_company_not_raised(monkeypatch):
@@ -295,7 +377,7 @@ def test_overall_score_is_the_best_fitting_service(monkeypatch):
     assert match.best_service_id == "svc-2"
     assert match.signals == ["hiring finance staff"]
     assert match.error is None
-    # Dịch vụ khớp nhất phải nằm đầu để UI hiển thị ngay.
+    # Put the best-matching service first so the UI can display it immediately.
     assert match.service_fits[0].score == 85
 
 

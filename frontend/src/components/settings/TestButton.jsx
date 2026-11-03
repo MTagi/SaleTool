@@ -2,12 +2,12 @@ import { useState } from "react";
 import { api } from "../../api/client";
 
 /**
- * Gọi thật tới dịch vụ để kiểm tra cấu hình, trước khi chạy nguyên một job.
+ * Make a real service call to validate the configuration before running a full job.
  *
- * `target` là tên mục ("llm", "search", "data_source") — backend tự biết phải
- * gọi gì cho từng cái.
+ * `target` is a section name ("llm", "search", "data_source"); the backend
+ * knows which service to call for each one.
  */
-export default function TestButton({ target, label }) {
+export default function TestButton({ target, label, needsSave = false }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -25,10 +25,11 @@ export default function TestButton({ target, label }) {
 
   return (
     <div className="test-row">
-      <button type="button" className="secondary" onClick={run} disabled={busy}>
+      <button type="button" className="secondary" onClick={run} disabled={busy || needsSave}>
         {busy ? "Testing…" : label}
       </button>
-      {result && (
+      {needsSave && <span className="muted small-note">Save settings before testing. Tests use the saved configuration.</span>}
+      {!needsSave && result && (
         <span className={result.ok ? "test-ok" : "test-fail"}>
           {result.ok ? "✓" : "✕"} {result.message}
           {result.detail ? ` — ${result.detail}` : ""}

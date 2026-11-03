@@ -110,15 +110,15 @@ def test_get_latest_run_none_when_no_history(run_repo):
 
 
 def test_ordering_holds_for_many_saves_in_the_same_clock_tick(run_repo):
-    """Hai test xếp thứ tự phía trên từng chớp tắt trên Windows.
+    """The two ordering tests above were flaky on Windows.
 
-    Lý do: đồng hồ hệ thống nhảy từng ~15,6ms nên nhiều lần lưu liên tiếp nhận
-    đúng cùng một `created_at`, và `ORDER BY created_at` khi bằng nhau thì thứ
-    tự do engine tự quyết. 30 bản ghi lưu trong một vòng lặp chặt chắc chắn rơi
-    vào cùng một tick — nếu thứ tự vẫn đúng thì lỗi đó đã hết.
+    The system clock advances in ~15.6 ms increments, so consecutive saves may
+    share `created_at`. When timestamps match, `ORDER BY created_at` leaves the
+    order to the database engine. Thirty records in a tight loop will fall in
+    one tick; correct ordering proves the issue is fixed.
 
-    Đây không chỉ là chuyện của test: cùng lỗi làm trang History xếp sai và
-    `/api/download` không kèm run_id trả về nhầm lần chạy.
+    This affects more than tests: it can misorder History and make `/api/download`
+    without run_id return the wrong run.
     """
     criteria = SearchCriteria()
     saved = [
@@ -126,7 +126,7 @@ def test_ordering_holds_for_many_saves_in_the_same_clock_tick(run_repo):
         for _ in range(30)
     ]
 
-    # Tiền đề của bài test: chúng phải thực sự được lưu sát nhau.
+    # Test precondition: records must actually be saved close together.
     assert saved[-1].created_at > saved[0].created_at
 
     runs = run_repo.list_runs("alice", limit=30)
@@ -135,9 +135,9 @@ def test_ordering_holds_for_many_saves_in_the_same_clock_tick(run_repo):
 
 
 def test_ordering_survives_rows_written_before_the_monotonic_clock(run_repo, monkeypatch):
-    """Dòng CŨ trong DB thật vẫn có created_at trùng nhau — tiebreaker `rowid` lo phần đó.
+    """OLD rows in a real database can still share created_at; `rowid` breaks those ties.
 
-    Giả lập bằng cách đóng băng đồng hồ, để mọi bản ghi mang đúng một mốc.
+    Simulate this by freezing the clock so every record has the same timestamp.
     """
     frozen = "2026-09-01T00:00:00+00:00"
     monkeypatch.setattr("saletool.db.sqlite_repo.now_iso", lambda: frozen)
@@ -147,8 +147,66 @@ def test_ordering_survives_rows_written_before_the_monotonic_clock(run_repo, mon
         run_repo.save_run(username="alice", provider="mock", criteria=criteria, results=[])
         for _ in range(10)
     ]
-    assert len({s.created_at for s in saved}) == 1, "phải trùng mốc thì mới đúng tình huống cần thử"
+    assert len({s.created_at for s in saved}) == 1, "timestamps must match to reproduce the case"
 
     runs = run_repo.list_runs("alice", limit=10)
     assert [r.id for r in runs] == [s.id for s in reversed(saved)]
     assert run_repo.get_latest_run("alice").id == saved[-1].id
+
+
+def test_every_settings_api_key_is_encrypted_at_rest(tmp_path, monkeypatch):
+    """All three keys must be encrypted before storage, not just llm/search.
+
+    The Apollo key was previously missed: DataSourceSettings promised it would be
+    encrypted like every other key, but the repository encrypted only llm/search,
+    leaving it in plaintext in the .db file — the exact accidental exposure
+    crypto.py is meant to prevent.
+    """
+    import sqlite3
+
+    from saletool.db.sqlite_repo import SQLiteSettingsRepository
+    from saletool.models import AppSettings
+
+    monkeypatch.setenv("SALETOOL_SECRET_KEY", "0" * 64)
+    path = tmp_path / "settings.db"
+    repo = SQLiteSettingsRepository(path)
+
+    settings = AppSettings()
+    settings.llm.api_key = "sk-llm-plaintext"
+    settings.search.api_key = "sk-search-plaintext"
+    settings.data_source.api_key = "sk-apollo-plaintext"
+    repo.save_settings(settings, updated_by="alice")
+
+    with sqlite3.connect(path) as conn:
+        raw = conn.execute("SELECT settings_json FROM app_settings WHERE id = 1").fetchone()[0]
+
+    for secret in ("sk-llm-plaintext", "sk-search-plaintext", "sk-apollo-plaintext"):
+        assert secret not in raw
+
+    # Reading it back must return the real key; otherwise Apollo/LLM receive garbage.
+    loaded = repo.get_settings()
+    assert loaded.llm.api_key == "sk-llm-plaintext"
+    assert loaded.search.api_key == "sk-search-plaintext"
+    assert loaded.data_source.api_key == "sk-apollo-plaintext"
+
+
+def test_apollo_key_saved_before_the_fix_still_reads_back(tmp_path, monkeypatch):
+    """Existing plaintext values must remain readable: decrypt() passes through
+    values without the prefix, and the next save upgrades them automatically."""
+    import json
+    import sqlite3
+
+    from saletool.db.sqlite_repo import SQLiteSettingsRepository
+    from saletool.models import AppSettings
+
+    monkeypatch.setenv("SALETOOL_SECRET_KEY", "0" * 64)
+    path = tmp_path / "settings.db"
+    repo = SQLiteSettingsRepository(path)
+    repo.save_settings(AppSettings(), updated_by="alice")
+
+    legacy = AppSettings().model_dump(mode="json")
+    legacy["data_source"]["api_key"] = "sk-apollo-legacy"
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE app_settings SET settings_json = ? WHERE id = 1", (json.dumps(legacy),))
+
+    assert repo.get_settings().data_source.api_key == "sk-apollo-legacy"

@@ -1,5 +1,5 @@
-"""Implementation SQLite của các repository — mặc định hiện tại, 1 file, không
-cần server DB riêng."""
+"""SQLite repository implementation — the current default, using one file and
+no separate database server."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from saletool.crypto import decrypt, encrypt
 from saletool.clock import now_iso
+from saletool.crypto import decrypt, encrypt
 from saletool.db.base import (
     EnrichJobRepository,
     MatchJobRepository,
@@ -58,7 +58,7 @@ class SQLiteUserRepository(UserRepository):
     def create_user(self, username: str, password_hash: str) -> None:
         username = username.strip()
         if not username or not password_hash:
-            raise ValueError("Tên đăng nhập và mật khẩu không được để trống.")
+            raise ValueError("Username and password cannot be empty.")
 
         with sqlite3.connect(self.path) as conn:
             try:
@@ -67,7 +67,7 @@ class SQLiteUserRepository(UserRepository):
                     (username, password_hash),
                 )
             except sqlite3.IntegrityError as exc:
-                raise ValueError(f"Tài khoản '{username}' đã tồn tại.") from exc
+                raise ValueError(f"Account '{username}' already exists.") from exc
 
     def get_password_hash(self, username: str) -> str | None:
         with sqlite3.connect(self.path) as conn:
@@ -157,11 +157,11 @@ class SQLiteSearchRunRepository(SearchRunRepository):
                 SELECT id, created_at, provider, criteria_json, total_companies, total_contacts
                 FROM search_runs
                 WHERE username = ?
-                -- rowid là thứ tự chèn. Cần nó cho những dòng lưu TRƯỚC khi
-                -- saletool/clock.py ra đời: chúng vẫn có created_at trùng nhau,
-                -- và không có tiebreaker thì thứ tự do engine tự quyết.
-                -- An toàn vì bảng này không bao giờ bị xoá dòng, nên SQLite
-                -- không tái sử dụng rowid.
+                -- rowid reflects insertion order. It is needed for records saved
+                -- BEFORE saletool/clock.py existed: they may share created_at,
+                -- and without a tiebreaker the database chooses the order.
+                -- This is safe because rows are never deleted from this table,
+                -- so SQLite does not reuse rowids.
                 ORDER BY created_at DESC, rowid DESC
                 LIMIT ?
                 """,
@@ -205,7 +205,7 @@ class SQLiteSearchRunRepository(SearchRunRepository):
                        total_companies, total_contacts
                 FROM search_runs
                 WHERE username = ?
-                ORDER BY created_at DESC, rowid DESC   -- xem chú thích ở list_runs
+                ORDER BY created_at DESC, rowid DESC   -- See the note in list_runs.
                 LIMIT 1
                 """,
                 (username,),
@@ -215,6 +215,13 @@ class SQLiteSearchRunRepository(SearchRunRepository):
             return None
         return self._row_to_detail(username, row)
 
+    def delete_run(self, username: str, run_id: str) -> bool:
+        with sqlite3.connect(self.path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM search_runs WHERE id = ? AND username = ?",
+                (run_id, username),
+            )
+        return cursor.rowcount > 0
     @staticmethod
     def _row_to_detail(username: str, row: tuple) -> SearchRunDetail:
         run_id, created_at, provider, criteria_json, results_json, total_companies, total_contacts = row
@@ -231,7 +238,7 @@ class SQLiteSearchRunRepository(SearchRunRepository):
 
 
 class SQLiteSettingsRepository(SettingsRepository):
-    """Cấu hình lưu trong 1 dòng duy nhất (id = 1) — phạm vi toàn hệ thống."""
+    """Configuration stored in one row (id = 1), system-wide."""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -262,9 +269,10 @@ class SQLiteSettingsRepository(SettingsRepository):
         settings = AppSettings.model_validate_json(row[0])
         settings.updated_at = row[1]
         settings.updated_by = row[2]
-        # API key nằm trong DB ở dạng đã mã hoá — giải ra cho tầng gọi dùng.
+        # API keys are encrypted in the database; decrypt them for the caller.
         settings.llm.api_key = decrypt(settings.llm.api_key)
         settings.search.api_key = decrypt(settings.search.api_key)
+        settings.data_source.api_key = decrypt(settings.data_source.api_key)
         return settings
 
     def save_settings(self, settings: AppSettings, updated_by: str) -> AppSettings:
@@ -273,6 +281,7 @@ class SQLiteSettingsRepository(SettingsRepository):
         to_store = settings.model_copy(deep=True)
         to_store.llm.api_key = encrypt(to_store.llm.api_key)
         to_store.search.api_key = encrypt(to_store.search.api_key)
+        to_store.data_source.api_key = encrypt(to_store.data_source.api_key)
         to_store.updated_at = updated_at
         to_store.updated_by = updated_by
 
@@ -397,11 +406,11 @@ class SQLiteServiceRepository(ServiceRepository):
 
 
 class _SQLiteJobRepository:
-    """Phần thân dùng chung cho cả ba loại job.
+    """Shared implementation for all three job types.
 
-    Ba bảng job chỉ khác nhau ở tên bảng và kiểu dữ liệu; toàn bộ JSON của job
-    nằm trong một cột nên câu lệnh SQL giống hệt nhau. Lớp con chỉ khai báo
-    `_table` và hai model.
+    The three job tables differ only in table name and data type. Each job's JSON
+    is stored in one column, so the SQL statements are identical. Subclasses only
+    declare `_table` and the two models.
     """
 
     _table: str
@@ -453,19 +462,49 @@ class _SQLiteJobRepository:
             ).fetchone()
         return self._detail_model.model_validate_json(row[0]) if row else None
 
+    def fail_active_jobs(self, reason: str, finished_at: str) -> int:
+        with sqlite3.connect(self.path) as conn:
+            cursor = conn.execute(
+                f"UPDATE {self._table} SET status = 'failed', job_json = "
+                "json_set(job_json, '$.status', 'failed', '$.error', ?, "
+                "'$.finished_at', ?, '$.current_target', NULL) "
+                "WHERE status IN ('pending', 'running')",
+                (reason, finished_at),
+            )
+            return cursor.rowcount
+
+    def list_for_run(self, username: str, run_id: str, include_unlinked: bool = False) -> list:
+        condition = "json_extract(job_json, '$.run_id') = ?"
+        if include_unlinked:
+            condition += " OR json_extract(job_json, '$.run_id') IS NULL"
+        with sqlite3.connect(self.path) as conn:
+            rows = conn.execute(
+                f"SELECT job_json FROM {self._table} WHERE username = ? AND ({condition}) "
+                "ORDER BY created_at DESC, rowid DESC",
+                (username, run_id),
+            ).fetchall()
+        return [self._detail_model.model_validate_json(row[0]) for row in rows]
+
+    def delete_for_run(self, username: str, run_id: str) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                f"DELETE FROM {self._table} WHERE username = ? "
+                "AND json_extract(job_json, '$.run_id') = ?",
+                (username, run_id),
+            )
     def list_jobs(self, username: str, limit: int = 20) -> list:
         with sqlite3.connect(self.path) as conn:
             rows = conn.execute(
                 f"""
                 SELECT job_json FROM {self._table}
                 WHERE username = ?
-                ORDER BY created_at DESC, rowid DESC   -- xem chú thích ở list_runs
+                ORDER BY created_at DESC, rowid DESC   -- See the note in list_runs.
                 LIMIT ?
                 """,
                 (username, limit),
             ).fetchall()
 
-        # Summary bỏ các field nặng (results/targets/services) khi chỉ cần liệt kê.
+        # Omit large fields (results/targets/services) from list summaries.
         return [
             self._summary_model.model_validate(
                 self._detail_model.model_validate_json(row[0]).model_dump()

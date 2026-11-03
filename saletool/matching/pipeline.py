@@ -1,16 +1,16 @@
-"""Ghép kết quả search + catalog dịch vụ -> danh sách công ty đã xếp hạng.
+"""Combine search results with the service catalog to produce ranked companies.
 
-Luồng cho mỗi công ty:
+Flow for each company:
 
-  1. dựng hồ sơ công ty từ kết quả search, và **nếu từng enrich thì trộn thêm**
-     dữ liệu enrich vào (mô tả, ngành, công nghệ, ban lãnh đạo);
-  2. LLM chấm điểm công ty đó với từng dịch vụ được chọn;
-  3. code tính điểm tổng và xếp hạng.
+  1. build a company profile from search results and **include enrichment data if
+     available** (description, industry, technologies, leadership);
+  2. ask the LLM to score the company against each selected service;
+  3. calculate total scores and rankings in code.
 
-Bước 3 cố tình **không** giao cho LLM. Nếu để model tự nói "công ty này xếp thứ
-3" thì thứ tự sẽ đổi giữa hai lần chạy trên cùng dữ liệu và không giải thích
-được cho người bán. Ở đây điểm tổng = điểm của dịch vụ khớp nhất, vì trong thực
-tế bán hàng chỉ cần một dịch vụ đủ hợp là đã có lý do để tiếp cận.
+Step 3 is deliberately **not** delegated to the LLM. If the model decides "this
+company ranks third", rankings may change across runs on the same data and are
+hard to explain to salespeople. The total score here is the best-fit service score,
+since one suitable service is enough reason to contact a company.
 """
 
 from __future__ import annotations
@@ -31,43 +31,81 @@ from saletool.prompt_text import MAX_LIST_ITEMS, clip_text
 
 logger = logging.getLogger(__name__)
 
+MAX_RESEARCH_CHARS = 16000
+
+
+def _research_evidence(enrichment: CompanyEnrichment) -> str | None:
+    """Keep research and source URLs within a separate budget from the short description."""
+    if enrichment.summary_markdown and enrichment.report_status in (None, "completed"):
+        text = enrichment.summary_markdown.strip()
+        label = "Enrichment research report (AI synthesis; verify against cited sources)"
+    elif enrichment.raw_markdown:
+        # Share the budget so a long first page does not crowd out later sources.
+        sections = enrichment.raw_markdown.split("\n\nSOURCE URL: ")[:MAX_LIST_ITEMS]
+        limit = max(1, (MAX_RESEARCH_CHARS - 32 * len(sections)) // len(sections))
+        text = "\n\nSOURCE URL: ".join(
+            section if len(section) <= limit else section[:limit] + "\n[truncated]"
+            for section in sections
+        )
+        label = "Enrichment source excerpts (report unavailable)"
+    else:
+        return None
+
+    if len(text) > MAX_RESEARCH_CHARS:
+        text = text[:MAX_RESEARCH_CHARS] + "\n[truncated]"
+    urls = list(dict.fromkeys(source.url for source in enrichment.sources if source.ok))
+    sources = "\n".join(f"- {url}" for url in urls[:MAX_LIST_ITEMS])
+    return f"{label}:\n{text}" + (f"\nSuccessfully read source URLs:\n{sources}" if sources else "")
+
 
 def enrichment_key(name: str | None, domain: str | None) -> tuple[str, str]:
-    """Khoá ghép công ty giữa kết quả search và kết quả enrich.
+    """Company key for joining search and enrichment results.
 
-    Ghép theo cả tên lẫn domain vì hai luồng nhập liệu khác nhau: search trả tên
-    theo nhà cung cấp, còn enrich thường được chạy theo domain.
+    Join by both name and domain because the two input flows differ: search uses
+    the provider's company name, while enrichment usually runs by domain.
     """
     return (name or "").strip().lower(), normalize_domain(domain or "")
 
 
-def build_enrichment_index(jobs_results: list[CompanyEnrichment]) -> dict[str, CompanyEnrichment]:
-    """Dựng bảng tra enrich theo tên và theo domain.
+def build_enrichment_index(jobs_results: list[CompanyEnrichment]) -> dict[str, CompanyEnrichment | None]:
+    """Build enrichment lookups by name and domain.
 
-    `jobs_results` xếp theo thứ tự mới nhất trước — bản ghi đầu tiên gặp sẽ
-    thắng, để dữ liệu enrich mới không bị bản cũ đè.
+    `jobs_results` are newest first; the first record wins so newer enrichment
+    data is not overwritten by older data.
     """
-    index: dict[str, CompanyEnrichment] = {}
+    index: dict[str, CompanyEnrichment | None] = {}
     for result in jobs_results:
         name_key, domain_key = enrichment_key(result.company_name, result.domain)
-        for key in (name_key, domain_key):
+        for key in (f"name:{name_key}" if name_key else "", f"domain:{domain_key}" if domain_key else ""):
             if key and key not in index:
                 index[key] = result
+            elif key.startswith("name:") and index.get(key) is not None:
+                existing_domain = normalize_domain(index[key].domain or "")
+                if existing_domain and domain_key and existing_domain != domain_key:
+                    index[key] = None
     return index
 
 
 def lookup_enrichment(
-    index: dict[str, CompanyEnrichment], name: str | None, domain: str | None
+    index: dict[str, CompanyEnrichment | None], name: str | None, domain: str | None
 ) -> CompanyEnrichment | None:
     name_key, domain_key = enrichment_key(name, domain)
-    # Domain trước: trùng domain là bằng chứng mạnh hơn trùng tên.
-    return index.get(domain_key) or index.get(name_key)
+    # Check domain first: a domain match is stronger evidence than a name match.
+    by_domain = index.get(f"domain:{domain_key}") if domain_key else None
+    if by_domain is not None:
+        return by_domain
+    by_name = index.get(f"name:{name_key}") if name_key else None
+    if by_name is not None:
+        other_domain = normalize_domain(by_name.domain or "")
+        if domain_key and other_domain and domain_key != other_domain:
+            return None
+    return by_name
 
 
 def build_company_profile(
     result: CompanyResult, enrichment: CompanyEnrichment | None = None
 ) -> str:
-    """Gộp mọi thứ biết về 1 công ty thành khối text cho LLM đọc."""
+    """Combine everything known about a company into a text block for the LLM."""
     company = result.company
     lines = [f"Name: {company.name}"]
 
@@ -77,6 +115,13 @@ def build_company_profile(
 
     add("Website", company.domain or (enrichment.domain if enrichment else None))
     add("LinkedIn", company.linkedin_url)
+    add("Apollo description", (company.description or "")[:1000])
+    add("Apollo founded year", str(company.founded_year) if company.founded_year else None)
+    add("Apollo annual revenue (provider estimate)", company.annual_revenue)
+    add("Apollo total funding", company.total_funding)
+    add("Apollo technologies", ", ".join(company.technologies[:20]))
+    add("Apollo keywords", ", ".join(company.keywords[:20]))
+    add("Apollo address", company.address)
     add("Industry", company.industry or (enrichment.industry if enrichment else None))
     add("Location", company.location or (enrichment.headquarters if enrichment else None))
 
@@ -93,9 +138,12 @@ def build_company_profile(
             add("Technologies", ", ".join(enrichment.technologies[:MAX_LIST_ITEMS]))
         if enrichment.addresses:
             add("Address", clip_text(enrichment.addresses[0], 200))
+        research = _research_evidence(enrichment)
+        if research:
+            lines.append(research)
 
-    # Chức danh của người liên hệ là tín hiệu mua hàng thật: có CTO nghĩa là có
-    # đội kỹ thuật, có Head of Growth nghĩa là đang đẩy tăng trưởng.
+    # Contact titles are real buying signals: a CTO suggests a technical team,
+    # while a Head of Growth suggests investment in growth.
     people = [
         f"{c.full_name} — {c.title}" if c.title else c.full_name
         for c in result.contacts[:MAX_LIST_ITEMS]
@@ -121,10 +169,11 @@ async def match_company(
     objective: str | None = None,
     enrichment: CompanyEnrichment | None = None,
 ) -> CompanyMatch:
-    """Chấm 1 công ty. Lỗi LLM được ghi vào `error` chứ không raise ra ngoài,
-    để một công ty hỏng không làm mất cả bảng xếp hạng."""
+    """Score one company. Store LLM errors in `error` instead of raising so one
+    failed company does not remove the entire ranking."""
     company = result.company
     match = CompanyMatch(
+        company_id=company.id,
         company_name=company.name,
         domain=company.domain or (enrichment.domain if enrichment else None),
         linkedin_url=company.linkedin_url,
@@ -141,7 +190,7 @@ async def match_company(
             profile, services, objective
         )
     except LLMError as exc:
-        logger.warning("Chấm điểm thất bại cho '%s': %s", company.name, exc)
+        logger.warning("Scoring failed for '%s': %s", company.name, exc)
         match.error = str(exc)[:300]
         return match
 
@@ -160,12 +209,11 @@ async def match_company(
 
 
 def rank_matches(matches: list[CompanyMatch]) -> list[CompanyMatch]:
-    """Sắp xếp và đánh số thứ hạng. Trả về chính danh sách đã sắp (sửa tại chỗ `rank`).
+    """Sort and assign ranks. Return the same sorted list (updating `rank` in place).
 
-    Thứ tự ưu tiên khi bằng điểm: công ty hợp với **nhiều** dịch vụ hơn (điểm
-    trung bình cao hơn) đứng trước — bán được nhiều thứ cho một khách thì đáng
-    theo đuổi hơn. Công ty chấm lỗi luôn xuống cuối, không lẫn với công ty điểm
-    thấp thật.
+    Tie-breaker: companies matching **more** services (higher average score) rank
+    first, since selling more to one customer is more valuable. Companies with
+    scoring errors always go last, separate from companies with genuinely low scores.
     """
 
     def sort_key(match: CompanyMatch) -> tuple:

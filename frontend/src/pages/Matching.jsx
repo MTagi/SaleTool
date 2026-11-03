@@ -70,7 +70,7 @@ export default function Matching() {
   const ready = allMet(checks);
 
   const activeServices = useMemo(() => (services || []).filter((s) => s.active), [services]);
-  // Công ty bị lỗi lúc chấm thì không tick được, nên cũng không tính vào "chọn tất cả".
+  // Companies with scoring errors cannot be selected, so exclude them from "select all".
   const scorable = useMemo(
     () => (job?.results || []).filter((m) => !m.error).map((m) => m.company_name),
     [job?.results],

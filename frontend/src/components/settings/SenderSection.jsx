@@ -1,10 +1,10 @@
 import SettingsSection from "../SettingsSection";
 
 /**
- * Message gửi đi là của ai.
+ * Who is sending the message.
  *
- * Thiếu tên + tên công ty thì bước Messages bị chặn hẳn: một message phải có
- * người gửi, và thà chặn còn hơn để model tự bịa ra một người.
+ * Messages is blocked without a name and company name: a message needs a sender,
+ * and blocking is better than letting the model invent one.
  */
 export default function SenderSection({ value, onChange }) {
   const summary = value.full_name

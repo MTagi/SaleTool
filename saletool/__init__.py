@@ -1,5 +1,5 @@
-"""SaleTool: tìm công ty phù hợp trên LinkedIn (qua các nhà cung cấp dữ liệu hợp pháp)
-và trích xuất danh sách liên hệ cấp cao của các công ty đó.
+"""SaleTool: find matching companies on LinkedIn (through legitimate data providers)
+and retrieve senior contacts at those companies.
 """
 
 __version__ = "0.1.0"

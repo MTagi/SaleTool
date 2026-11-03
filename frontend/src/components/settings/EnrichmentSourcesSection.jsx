@@ -1,9 +1,9 @@
 import SettingsSection from "../SettingsSection";
 import CheckboxField from "./CheckboxField";
 
-// Đúng thứ tự chạy trong enrichment/pipeline.py: rẻ và chắc chắn trước, LLM
-// sau cùng. Thứ tự trên màn hình phải khớp thứ tự thật, vì đó chính là điều
-// dòng chú thích bên dưới đang hứa với người dùng.
+// Match the order in enrichment/pipeline.py: cheaper and more reliable sources
+// first, with the LLM last. The UI order must match the actual pipeline because
+// the explanatory text below promises this sequence.
 const SOURCES = [
   {
     key: "use_structured_data",
@@ -21,7 +21,7 @@ const SOURCES = [
   },
 ];
 
-/** Bật/tắt từng tầng của enrichment. */
+/** Enable or disable each enrichment stage. */
 export default function EnrichmentSourcesSection({ value, onChange }) {
   const summary =
     [

@@ -1,11 +1,11 @@
-"""/api/status — cái gì đã cấu hình, cái gì đã có dữ liệu.
+"""/api/status — configured settings and available data.
 
-Một lượt gọi để UI biết trước bước nào chạy được. Trước đây người dùng phải điền
-xong cả form rồi bấm mới nhận 400 "chưa có LLM API key" — thông tin đó có sẵn từ
-đầu, chỉ là không ai hỏi.
+One call lets the UI know which steps can run in advance. Previously, users had
+to fill the form and submit it before seeing a 400 "LLM API key missing" error;
+the information was available from the start but was never requested.
 
-Endpoint trả **dữ kiện**, không trả câu chữ hiển thị: quyết định hiện gì là việc
-của frontend, backend chỉ nói sự thật về trạng thái hệ thống.
+The endpoint returns **facts**, not display text: the frontend decides what to
+show, while the backend reports the system state.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from saletool.db.factory import (
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
-# Đủ để biết "có hay không" và "khoảng bao nhiêu" mà không kéo cả lịch sử về.
+# Enough to know "whether" and "approximately how many" without fetching all history.
 _PROBE_LIMIT = 50
 
 
@@ -37,8 +37,8 @@ def read_status(user: str = Depends(get_current_user)) -> dict:
     latest_run = runs[0] if runs else None
 
     return {
-        # Bước 1 không chạy được nếu nguồn dữ liệu chưa có key — trang Search
-        # đọc cờ này để chặn trước thay vì để người dùng điền hết form rồi ăn 400.
+        # Step 1 cannot run without a data source key. The Search page uses this
+        # flag to block early instead of returning 400 after the form is filled.
         "data_source_provider": settings.data_source.provider,
         "data_source_configured": bool(settings.data_source.api_key),
         "llm_configured": bool(settings.llm.api_key),

@@ -1,4 +1,4 @@
-"""Test /api/match — chạy job thật ở nền, chỉ thay lớp gọi LLM bằng bản giả."""
+"""Test /api/match with a real background job and a fake LLM client."""
 
 
 import pytest
@@ -14,7 +14,7 @@ from tests.conftest import auth, wait_for_job
 
 
 def _scored_response(scores: dict[str, int]):
-    """Bản giả của lớp gọi LLM: trả điểm cố định theo nhãn dịch vụ."""
+    """Fake LLM client that returns fixed scores by service label."""
 
     async def fake_request_json(settings, payload, timeout=None):
         return {
@@ -32,7 +32,7 @@ def _scored_response(scores: dict[str, int]):
 
 @pytest.fixture
 def configured(db_path):
-    """Matching cần LLM key, nếu không route sẽ chặn ngay từ đầu."""
+    """Matching requires an LLM key; otherwise the route blocks immediately."""
     settings = AppSettings()
     settings.llm.api_key = "sk-or-test"
     SQLiteSettingsRepository(db_path).save_settings(settings, updated_by="alice")
@@ -50,7 +50,7 @@ def client(configured, monkeypatch):
 
 @pytest.fixture
 def run_id(configured):
-    """1 lần search đã lưu, 2 công ty."""
+    """One saved search run with two companies."""
     return (
         SQLiteSearchRunRepository(configured)
         .save_run(
@@ -108,7 +108,7 @@ def test_rejects_unknown_service(client, run_id):
 
 
 def test_rejects_another_users_run(client, run_id):
-    """run_id của alice không được map bằng token của bob."""
+    """Alice's run_id must not be accessible with Bob's token."""
     bob = auth(client, "bob", "another-pass")
     resp = client.post(
         "/api/match",
@@ -148,13 +148,13 @@ def test_job_ranks_every_company_in_the_run(client, run_id):
     assert final["failed"] == 0
     assert len(final["results"]) == 2
     assert [m["rank"] for m in final["results"]] == [1, 2]
-    # Điểm tổng = dịch vụ khớp nhất (S2 = 85 trong bản giả).
+    # Total score equals the best-fit service (S2 = 85 in the fake client).
     assert final["results"][0]["overall_score"] == 85
     assert final["results"][0]["best_service_name"] == "Audit"
 
 
 def test_job_snapshots_the_services_it_ran_with(client, run_id):
-    """Xoá dịch vụ khỏi catalog không được làm hỏng kết quả đã chạy."""
+    """Removing a service from the catalog must not break completed results."""
     headers = auth(client)
     service_ids = _services(client, headers)
     job_id = client.post(
@@ -232,7 +232,7 @@ def test_llm_failures_are_counted_not_fatal(client, run_id, monkeypatch):
 
     final = wait_for_job(client, headers, f"/api/match/jobs/{job_id}")
 
-    # Job vẫn phải hoàn tất và trả về đủ công ty, kèm lý do lỗi cho từng cái.
+    # The job must still finish and return every company with its error reason.
     assert final["status"] == "completed"
     assert final["failed"] == 2
     assert len(final["results"]) == 2
